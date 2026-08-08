@@ -203,9 +203,6 @@ ${content.reminderIntro}
 📅 {dateTime}
 📍 {place}
 
-${content.reminderSiteLabel}:
-{siteUrl}
-
 ${content.reminderLinkLabel}:
 {personalLink}
 
@@ -333,24 +330,20 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     "קוד האימות למסיבת הפרידה של איילת:\n\n{code}\n\nהקוד תקף ל־10 דקות.",
   reminderTemplate: `שלום {name},
 
-ראינו שעדיין לא נרשמת למסיבת הפרידה של איילת 🙏
-נשמח אם תעדכנו את סטטוס ההגעה שלכם בהקדם.
+זוהי תזכורת לעדכון סטטוס הגעה לקראת מסיבת הפרידה של איילת
 
 📅 {dateTime}
 📍 {place}
 
-לפרטים נוספים:
-{siteUrl}
-
-זה קישור אישי אליכם — לעדכון סטטוס ההגעה:
+זה הקישור האישי שלך לכניסה למערכת:
 {personalLink}
 
 מחכות לראותכם
 אורטל וכרמל`,
   reminderIntro:
-    "ראינו שעדיין לא נרשמת למסיבת הפרידה של איילת 🙏\nנשמח אם תעדכנו את סטטוס ההגעה שלכם בהקדם.",
+    "זוהי תזכורת לעדכון סטטוס הגעה לקראת מסיבת הפרידה של איילת",
   reminderSiteLabel: "לפרטים נוספים",
-  reminderLinkLabel: "זה קישור אישי אליכם — לעדכון סטטוס ההגעה",
+  reminderLinkLabel: "זה הקישור האישי שלך לכניסה למערכת",
   reminderOutro: "מחכות לראותכם\nאורטל וכרמל",
   waThankYouConfirmed: `שלום {name},
 
@@ -395,12 +388,15 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
 const LEGACY_REMINDER_LINK_LABELS = new Set([
   "לעדכון סטטוס ההגעה",
   "לעדכון סטטוס ההגעה שלכם",
+  "זה קישור אישי אליכם — לעדכון סטטוס ההגעה",
+  "זה קישור אישי שלך לעדכון סטטוס ההגעה",
+  "זה קישור אישי אליכם — לכניסה למערכת",
+  "זה קישור אישי שלך לכניסה למערכת",
 ]);
 
 /**
  * Bring older CMS copies in line with current product copy.
  * Runs on read so WhatsApp/site pick up migrations without a manual re-save.
- * Do not rewrite reminderTemplate personal-link wording — editors own that text.
  */
 export function migrateStoredSiteContent(content: SiteContent): SiteContent {
   const next = { ...content };
@@ -415,6 +411,20 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
   if (LEGACY_REMINDER_LINK_LABELS.has(next.reminderLinkLabel.trim())) {
     next.reminderLinkLabel = DEFAULT_SITE_CONTENT.reminderLinkLabel;
   }
+
+  // Normalize personal-link line in reminder WhatsApp template.
+  next.reminderTemplate = next.reminderTemplate.replace(
+    /זה קישור אישי שלך לעדכון סטטוס ההגעה:/g,
+    "זה הקישור האישי שלך לכניסה למערכת:"
+  );
+  next.reminderTemplate = next.reminderTemplate.replace(
+    /זה קישור אישי שלך לכניסה למערכת:/g,
+    "זה הקישור האישי שלך לכניסה למערכת:"
+  );
+  next.reminderTemplate = next.reminderTemplate.replace(
+    /זה קישור אישי אליכם — (?:לעדכון סטטוס ההגעה|לכניסה למערכת):/g,
+    "זה הקישור האישי שלך לכניסה למערכת:"
+  );
 
   if (next.submitRsvpLabel.trim() === "שליחת אישור הגעה") {
     next.submitRsvpLabel = DEFAULT_SITE_CONTENT.submitRsvpLabel;

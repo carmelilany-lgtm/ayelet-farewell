@@ -42,18 +42,53 @@ export async function buildReminderMessage(opts: {
   fullName: string;
   inviteToken: string;
   origin?: string;
+  /** Admin-added guest still waiting — invite wording instead of "reminder". */
+  manualPending?: boolean;
 }): Promise<string> {
   const content = await getSiteContent();
   const siteUrl = siteAbsoluteUrl(opts.origin);
   const personalLink = inviteAbsoluteUrl(opts.inviteToken, siteUrl);
 
-  return applyTemplate(content.reminderTemplate, {
+  const message = applyTemplate(content.reminderTemplate, {
     name: opts.fullName,
     dateTime: content.dateTime,
     place: content.place,
     siteUrl,
     personalLink,
   });
+
+  if (!opts.manualPending) return message;
+  return adaptReminderForManualInvite(message);
+}
+
+/** Manual pending list: first line should invite, not remind. */
+function adaptReminderForManualInvite(message: string): string {
+  const inviteLine = "מזמינים אותך למסיבת הפרידה של איילת";
+
+  if (/זוהי תזכורת לעדכון סטטוס הגעה לקראת מסיבת הפרידה של איילת/.test(message)) {
+    return message.replace(
+      /זוהי תזכורת לעדכון סטטוס הגעה לקראת מסיבת הפרידה של איילת/g,
+      inviteLine
+    );
+  }
+
+  if (/תזכורת למסיבת הפרידה של איילת/.test(message)) {
+    return message.replace(/תזכורת למסיבת הפרידה של איילת/g, inviteLine);
+  }
+
+  if (/תזכורת למסיבת/.test(message)) {
+    return message.replace(/תזכורת למסיבת/g, "מזמינים אותך למסיבת");
+  }
+
+  // Default / older templates that talk about "haven't registered yet".
+  return message
+    .replace(
+      /ראינו שעדיין לא נרשמת למסיבת הפרידה של איילת[^\n]*/g,
+      inviteLine
+    )
+    .replace(/\nנשמח אם תעדכנו את סטטוס ההגעה שלכם בהקדם\.\n*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function buildOrganizerAddGuestSuccess(fullName: string): string {

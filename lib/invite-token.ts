@@ -28,15 +28,11 @@ export function siteAbsoluteUrl(origin?: string): string {
 
 export function whatsappShareUrl(token: string, fullName: string, origin?: string): string {
   const link = inviteAbsoluteUrl(token, origin);
-  const site = siteAbsoluteUrl(origin);
   const text = `היי ${fullName}, תזכורת למסיבת הפרידה של איילת 🌿
 7 בספטמבר 2026 | 18:00-21:00
 תחנת רוח, כיכר בן גוריון 1, טבעון
 
-לפרטים נוספים:
-${site}
-
-זה קישור אישי אליכם — לעדכון סטטוס ההגעה:
+זה הקישור האישי שלך לכניסה למערכת:
 ${link}`;
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }

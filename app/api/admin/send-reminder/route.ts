@@ -67,6 +67,7 @@ async function sendOne(
     fullName: rsvp.full_name,
     inviteToken: rsvp.invite_token,
     origin,
+    manualPending: isManualPendingGuest(rsvp),
   });
 
   const result = await sendWhatsAppTextWithRetry(rsvp.phone, message, 3, {
