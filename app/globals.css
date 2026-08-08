@@ -33,7 +33,7 @@ body {
   margin: 0;
   background: var(--cream);
   color: var(--ink);
-  font-family: var(--font-heebo), "Assistant", "Alef", sans-serif;
+  font-family: var(--font-sans), "Open Sans Hebrew", "Assistant", sans-serif;
   line-height: 1.65;
   font-size: 16px;
   -webkit-font-smoothing: antialiased;

@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { Frank_Ruhl_Libre, Heebo } from "next/font/google";
+import { Frank_Ruhl_Libre, Open_Sans } from "next/font/google";
 import "./globals.css";
 
-const heebo = Heebo({
+const openSans = Open_Sans({
   subsets: ["hebrew", "latin"],
   weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-heebo",
+  variable: "--font-sans",
   display: "swap",
 });
 
@@ -41,7 +41,7 @@ export default function RootLayout({
     <html
       lang="he"
       dir="rtl"
-      className={`${heebo.variable} ${frank.variable} h-full`}
+      className={`${openSans.variable} ${frank.variable} h-full`}
     >
       <body className="min-h-full antialiased">{children}</body>
     </html>
