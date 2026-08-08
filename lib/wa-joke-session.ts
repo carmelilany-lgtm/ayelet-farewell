@@ -6,8 +6,8 @@ import { getSupabaseAdmin, hasSupabaseConfig } from "./supabase";
 const DATA_DIR = path.join(process.cwd(), "data");
 const FILE = path.join(DATA_DIR, "wa-joke-sessions.json");
 const SITE_CONTENT_ID = "wa_joke_sessions";
-/** "עוד" stays valid for a day after the last joke. */
-const TTL_MS = 24 * 60 * 60 * 1000;
+/** "עוד" stays valid for 2 minutes after the last joke. */
+const TTL_MS = 2 * 60 * 1000;
 
 type JokeSession = {
   phoneKey: string;
