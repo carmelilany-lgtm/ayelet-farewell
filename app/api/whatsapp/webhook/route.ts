@@ -1,3 +1,4 @@
+import { formatPhoneDisplay } from "@/lib/phone";
 import {
   organizerNotifyPhones,
   sendWhatsAppText,
@@ -6,7 +7,11 @@ import {
   buildOrganizerAddGuestFailure,
   buildOrganizerAddGuestSuccess,
 } from "@/lib/reminder-message";
-import { createImportedGuest } from "@/lib/store";
+import {
+  createImportedGuest,
+  findGuestAddConflict,
+  type GuestAddConflict,
+} from "@/lib/store";
 import {
   isOrganizerSender,
   parseAddGuestMessage,
@@ -41,16 +46,29 @@ function extractText(body: GreenWebhookBody): string | null {
   return null;
 }
 
+function phoneConflictMessage(conflict: GuestAddConflict): string {
+  const who = conflict.existing.full_name;
+  const phone = formatPhoneDisplay(conflict.existing.phone);
+  switch (conflict.code) {
+    case "ALREADY_CONFIRMED":
+      return `המספר ${phone} כבר קיים במערכת אצל ${who} (אישר/ה הגעה). לא נוסף שוב.`;
+    case "ALREADY_DECLINED":
+      return `המספר ${phone} כבר קיים במערכת אצל ${who} (לא מגיע/ה). לא נוסף שוב.`;
+    case "PHONE_EXISTS":
+      return `המספר ${phone} כבר קיים במערכת אצל ${who}. לא נוסף שוב.`;
+    default:
+      return `המספר ${phone} כבר קיים במערכת. לא נוסף שוב.`;
+  }
+}
+
 function conflictMessage(code: string): string {
   switch (code) {
     case "ALREADY_CONFIRMED":
-      return "המספר כבר רשום ומאושר במערכת.";
+      return "המספר כבר רשום ומאושר במערכת. לא נוסף שוב.";
     case "ALREADY_DECLINED":
-      return "המספר כבר רשום כמי שלא מגיע.";
+      return "המספר כבר רשום כמי שלא מגיע. לא נוסף שוב.";
     case "PHONE_EXISTS":
-      return "המספר כבר קיים ברשימה (ממתין לאישור).";
-    case "NAME_ALREADY_CONFIRMED":
-      return "שם זהה כבר אושר במערכת. בדקו אם מדובר באותו אדם.";
+      return "המספר כבר קיים ברשימה. לא נוסף שוב.";
     case "INVALID_PHONE":
       return "מספר טלפון לא תקין.";
     case "INVALID_NAME":
@@ -120,10 +138,37 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, ignored: "not_add_template" });
   }
 
+  // Block duplicates by phone before creating.
+  const conflict = await findGuestAddConflict({
+    full_name: parsed.fullName,
+    phone: parsed.phone,
+    phoneOnly: true,
+  });
+  if (conflict) {
+    if (replyTo) {
+      await sendWhatsAppText(
+        replyTo,
+        buildOrganizerAddGuestFailure(phoneConflictMessage(conflict))
+      );
+    }
+    return Response.json({
+      ok: true,
+      added: false,
+      error: conflict.code,
+      existing: {
+        id: conflict.existing.id,
+        full_name: conflict.existing.full_name,
+        phone: conflict.existing.phone,
+        status: conflict.existing.status,
+      },
+    });
+  }
+
   try {
     const guest = await createImportedGuest({
       full_name: parsed.fullName,
       phone: parsed.phone,
+      phoneOnly: true,
     });
 
     if (replyTo) {

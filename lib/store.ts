@@ -374,6 +374,8 @@ export type GuestAddConflict = {
 export async function findGuestAddConflict(input: {
   full_name: string;
   phone: string;
+  /** When true, only reject on matching phone (ignore same-name confirmed). */
+  phoneOnly?: boolean;
 }): Promise<GuestAddConflict | null> {
   const phone = normalizePhone(input.phone);
   const fullName = input.full_name.trim();
@@ -389,6 +391,8 @@ export async function findGuestAddConflict(input: {
     }
     return { code: "PHONE_EXISTS", existing: byPhone };
   }
+
+  if (input.phoneOnly) return null;
 
   const nameKey = normalizeGuestName(fullName);
   const sameNameConfirmed = (await listRsvps()).find(
@@ -410,6 +414,7 @@ export async function findGuestAddConflict(input: {
 export async function createImportedGuest(input: {
   full_name: string;
   phone: string;
+  phoneOnly?: boolean;
 }): Promise<Rsvp> {
   const phone = normalizePhone(input.phone);
   if (!phone) throw new Error("INVALID_PHONE");
@@ -417,7 +422,11 @@ export async function createImportedGuest(input: {
   const fullName = input.full_name.trim();
   if (!fullName) throw new Error("INVALID_NAME");
 
-  const conflict = await findGuestAddConflict({ full_name: fullName, phone });
+  const conflict = await findGuestAddConflict({
+    full_name: fullName,
+    phone,
+    phoneOnly: input.phoneOnly,
+  });
   if (conflict) throw new Error(conflict.code);
 
   const timestamp = nowIso();
