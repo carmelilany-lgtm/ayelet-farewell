@@ -1,6 +1,7 @@
-import { formatPhoneDisplay } from "@/lib/phone";
+import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
 import {
   organizerNotifyPhones,
+  resolveWhatsAppChatId,
   sendWhatsAppReplyButtonsWithFallback,
   sendWhatsAppText,
 } from "@/lib/green-api";
@@ -103,6 +104,33 @@ function extractOrganizerInput(body: GreenWebhookBody): OrganizerInput | null {
   return null;
 }
 
+/**
+ * Map webhook sender (@c.us or @lid) to an organizer local phone (05…).
+ */
+async function resolveOrganizerPhone(
+  senderChatId: string,
+  organizers: string[]
+): Promise<string | null> {
+  if (isOrganizerSender(senderChatId, organizers)) {
+    return (
+      phoneFromWhatsAppId(senderChatId) ||
+      normalizePhone(organizers[0] || "") ||
+      null
+    );
+  }
+
+  // Privacy LID chats: match sender chatId against each organizer's resolved id.
+  const senderKey = senderChatId.trim().toLowerCase();
+  for (const org of organizers) {
+    const resolved = await resolveWhatsAppChatId(org);
+    if (!resolved) continue;
+    if (resolved.trim().toLowerCase() === senderKey) {
+      return normalizePhone(org);
+    }
+  }
+  return null;
+}
+
 function conflictMessage(code: string): string {
   switch (code) {
     case "ALREADY_CONFIRMED":
@@ -160,17 +188,9 @@ export async function POST(request: Request) {
   const buttonId = input.buttonId;
 
   const organizers = organizerNotifyPhones();
-  if (!isOrganizerSender(senderChatId, organizers)) {
-    return Response.json({ ok: true, ignored: "not_organizer" });
-  }
-
-  const replyTo =
-    phoneFromWhatsAppId(senderChatId) ||
-    organizers[0] ||
-    "";
-
+  const replyTo = await resolveOrganizerPhone(senderChatId, organizers);
   if (!replyTo) {
-    return Response.json({ ok: true, ignored: "no_reply_to" });
+    return Response.json({ ok: true, ignored: "not_organizer" });
   }
 
   // Button taps are never add-guest / rename free-text.

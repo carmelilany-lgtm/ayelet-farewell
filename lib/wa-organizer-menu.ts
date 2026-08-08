@@ -92,18 +92,15 @@ function navButtons(opts?: {
 
 export function renderMainMenu(page = 0): string {
   const p = Math.max(0, Math.min(MAIN_PAGE_COUNT - 1, page));
+  const labels = mainPageButtons(p)
+    .map((b) => `• ${b.buttonText}`)
+    .join("\n");
   return `*תפריט מארגנים* (${p + 1}/${MAIN_PAGE_COUNT})
 מידע בלבד — אין שליחת הודעות לאורחים מכאן.
 
-1 סיכום
-2 חיפוש אורח
-3 אושרו הגעה
-4 ממתינים לאישור
-5 עדיין לא יודעים
-6 לא מגיעים
-7 נוספו ידנית (ממתינים)
-8 איך להוסיף אורח
-${navFooter({ onMain: true })}`;
+${labels}
+
+גיבוי במספרים: 1 סיכום · 2 חיפוש · 3 אושרו · 4 ממתינים · 5 לא יודעים · 6 לא מגיעים · 7 ידניים · 8 הוספה · 0 יציאה`;
 }
 
 function renderSummary(summary: RsvpSummary): string {

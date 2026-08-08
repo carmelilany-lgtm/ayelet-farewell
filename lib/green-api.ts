@@ -49,25 +49,52 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Best-effort: wake / validate chat before first outbound message. */
-async function ensureWhatsAppChat(phone: string): Promise<void> {
+type CheckWhatsAppResult = {
+  existsWhatsapp?: boolean;
+  chatId?: string;
+  phoneNumber?: string;
+};
+
+/**
+ * Prefer Green API's resolved chatId (often @lid). Falls back to @c.us.
+ * Interactive buttons are more reliable when sent to the resolved id.
+ */
+export async function resolveWhatsAppChatId(
+  phone: string
+): Promise<string | null> {
+  const classic = phoneToChatId(phone);
+  if (!classic || !hasGreenApiConfig()) return classic;
+
   const phoneNumber = phoneToCheckNumber(phone);
-  if (!phoneNumber || !hasGreenApiConfig()) return;
+  if (!phoneNumber) return classic;
+
   try {
-    await fetch(apiUrl("checkWhatsapp"), {
+    const res = await fetch(apiUrl("checkWhatsapp"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phoneNumber: Number(phoneNumber) }),
       signal: AbortSignal.timeout(8000),
     });
+    const data = (await res.json().catch(() => ({}))) as CheckWhatsAppResult;
+    const resolved = data.chatId?.trim();
+    if (resolved && resolved.includes("@")) {
+      return resolved;
+    }
   } catch {
-    // Non-fatal — send may still succeed.
+    // keep classic
   }
+  return classic;
+}
+
+/** Best-effort: wake / validate chat before first outbound message. */
+async function ensureWhatsAppChat(phone: string): Promise<string | null> {
+  return resolveWhatsAppChatId(phone);
 }
 
 export async function sendWhatsAppText(
   phone: string,
-  message: string
+  message: string,
+  chatIdOverride?: string | null
 ): Promise<GreenSendResult> {
   if (!hasGreenApiConfig()) {
     return {
@@ -77,7 +104,7 @@ export async function sendWhatsAppText(
     };
   }
 
-  const chatId = phoneToChatId(phone);
+  const chatId = chatIdOverride || phoneToChatId(phone);
   if (!chatId) {
     return { ok: false, error: "מספר טלפון לא תקין לשליחה" };
   }
@@ -184,13 +211,23 @@ export async function sendWhatsAppTextWithRetry(
   attempts = 3
 ): Promise<GreenSendResult> {
   let last: GreenSendResult = { ok: false, error: "לא נשלח" };
+  let resolved: string | null = null;
   for (let i = 0; i < attempts; i++) {
     if (i === 0) {
-      await ensureWhatsAppChat(phone);
+      resolved = await ensureWhatsAppChat(phone);
       await sleep(300);
     }
-    last = await sendWhatsAppText(phone, message);
+    last = await sendWhatsAppText(phone, message, resolved);
     if (last.ok) return last;
+    // Retry once with classic @c.us if LID path failed.
+    if (resolved && resolved.includes("@lid")) {
+      const classic = phoneToChatId(phone);
+      if (classic && classic !== resolved) {
+        const viaClassic = await sendWhatsAppText(phone, message, classic);
+        if (viaClassic.ok) return viaClassic;
+        last = viaClassic;
+      }
+    }
     console.warn("Green API send attempt failed", {
       phone,
       attempt: i + 1,
@@ -242,7 +279,8 @@ export async function sendWhatsAppReplyButtons(
   phone: string,
   body: string,
   buttons: ReplyButton[],
-  footer?: string
+  footer?: string,
+  chatIdOverride?: string | null
 ): Promise<GreenSendResult> {
   if (!hasGreenApiConfig()) {
     return {
@@ -252,7 +290,7 @@ export async function sendWhatsAppReplyButtons(
     };
   }
 
-  const chatId = phoneToChatId(phone);
+  const chatId = chatIdOverride || phoneToChatId(phone);
   if (!chatId) {
     return { ok: false, error: "מספר טלפון לא תקין לשליחה" };
   }
@@ -262,7 +300,7 @@ export async function sendWhatsAppReplyButtons(
     buttonText: b.buttonText.slice(0, 25),
   }));
   if (trimmed.length === 0) {
-    return sendWhatsAppText(phone, body);
+    return sendWhatsAppText(phone, body, chatId);
   }
 
   try {
@@ -301,7 +339,7 @@ export async function sendWhatsAppReplyButtons(
   }
 }
 
-/** Reply buttons with plain-text fallback. */
+/** Reply buttons with plain-text fallback. Tries @lid then @c.us. */
 export async function sendWhatsAppReplyButtonsWithFallback(
   phone: string,
   body: string,
@@ -309,29 +347,54 @@ export async function sendWhatsAppReplyButtonsWithFallback(
   footer?: string
 ): Promise<GreenSendResult> {
   if (buttons && buttons.length > 0) {
-    const sent = await sendWhatsAppReplyButtons(phone, body, buttons, footer);
-    if (sent.ok) return sent;
-    console.warn("Falling back to plain menu text", { phone, error: sent.error });
+    const resolved = await ensureWhatsAppChat(phone);
+    await sleep(250);
+
+    const attempts: Array<string | null> = [];
+    if (resolved) attempts.push(resolved);
+    const classic = phoneToChatId(phone);
+    if (classic && classic !== resolved) attempts.push(classic);
+
+    for (const chatId of attempts) {
+      const sent = await sendWhatsAppReplyButtons(
+        phone,
+        body,
+        buttons,
+        footer,
+        chatId
+      );
+      if (sent.ok) return sent;
+      console.warn("Green API reply buttons attempt failed", {
+        phone,
+        chatId,
+        error: sent.error,
+      });
+      await sleep(400);
+    }
   }
-  return sendWhatsAppText(phone, body);
+  return sendWhatsAppTextWithRetry(phone, body, 2);
 }
 
 export function organizerNotifyPhone(): string {
   return organizerNotifyPhones()[0] || "+972544854584";
 }
 
+/** Known organizers — always included even if Vercel env is stale. */
+const DEFAULT_ORGANIZER_PHONES = ["+972544854584", "+972524059013"];
+
 /** One or more numbers: comma / semicolon / whitespace separated. */
 export function organizerNotifyPhones(): string[] {
   const raw =
     process.env.ORGANIZER_NOTIFY_PHONES?.trim() ||
     process.env.ORGANIZER_NOTIFY_PHONE?.trim() ||
-    "+972544854584,+972524059013";
+    "";
 
-  const phones = raw
+  const fromEnv = raw
     .split(/[,;\s]+/)
     .map((p) => p.trim())
     .filter(Boolean);
 
+  const phones = [...fromEnv, ...DEFAULT_ORGANIZER_PHONES];
   return [...new Set(phones)];
 }
 
