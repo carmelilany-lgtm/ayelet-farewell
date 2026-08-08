@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parseGuestCookie } from "@/lib/guest-session";
-import { notifyOrganizersWhatsApp, sendWhatsAppText } from "@/lib/green-api";
+import { notifyOrganizersWhatsApp, sendWhatsAppTextWithRetry } from "@/lib/green-api";
 import {
   buildGuestThankYouWhatsApp,
   buildOrganizerConfirmMessage,
@@ -44,6 +44,10 @@ function rateLimit(ip: string): boolean {
   return true;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function notifyOrganizer(rsvp: Rsvp) {
   const message = await buildOrganizerConfirmMessage({
     fullName: rsvp.full_name,
@@ -56,13 +60,14 @@ async function notifyOrganizer(rsvp: Rsvp) {
   if (result.sent === 0) {
     console.error("Organizer notify: no messages sent", result.failed);
   }
+  return result;
 }
 
 async function notifyGuestThankYou(
   rsvp: Rsvp,
   previous: { status: Rsvp["status"]; guest_count: number } | null
 ) {
-  if (rsvp.status === "imported") return;
+  if (rsvp.status === "imported") return { ok: true as const, skipped: true };
 
   const kind = thankYouKindForRsvpUpdate({
     previousStatus: previous?.status ?? null,
@@ -77,10 +82,11 @@ async function notifyGuestThankYou(
     inviteToken: rsvp.invite_token,
   });
 
-  const result = await sendWhatsAppText(rsvp.phone, message);
+  const result = await sendWhatsAppTextWithRetry(rsvp.phone, message, 3);
   if (!result.ok) {
     console.error("Guest thank-you WhatsApp failed", result.error);
   }
+  return result;
 }
 
 function publicInvite(full: Rsvp) {
@@ -172,6 +178,7 @@ export async function POST(request: Request) {
           ok: true,
           unchanged: true,
           invite: publicInvite(before),
+          invite_token: before.invite_token,
         });
       }
 
@@ -213,6 +220,7 @@ export async function POST(request: Request) {
           ok: true,
           unchanged: true,
           invite: publicInvite(before),
+          invite_token: before.invite_token,
         });
       }
 
@@ -251,16 +259,29 @@ export async function POST(request: Request) {
     }
 
     if (full) {
-      // Sequential: organizers first, then guest — avoids Green API dropping
-      // a concurrent second send when both fire at once.
-      await notifyOrganizer(full);
-      await notifyGuestThankYou(full, previous);
+      // Sequential + gap: organizers first, then guest — Green API often drops
+      // a second send if it fires too quickly after the first.
+      const organizerResult = await notifyOrganizer(full);
+      await sleep(900);
+      const guestResult = await notifyGuestThankYou(full, previous);
+      if (organizerResult.sent === 0) {
+        console.error("RSVP organizer WhatsApp failed", organizerResult.failed);
+      }
+      if (
+        guestResult &&
+        "ok" in guestResult &&
+        guestResult.ok === false &&
+        !("skipped" in guestResult && guestResult.skipped)
+      ) {
+        console.error("RSVP guest WhatsApp failed", guestResult);
+      }
     }
 
     return Response.json({
       ok: true,
       unchanged: false,
       invite: full ? publicInvite(full) : null,
+      invite_token: full?.invite_token ?? null,
     });
   } catch (err) {
     console.error("RSVP update failed", err);

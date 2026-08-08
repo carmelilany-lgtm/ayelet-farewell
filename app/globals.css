@@ -143,14 +143,30 @@ a {
   animation-delay: 0.12s;
 }
 
-.program-banner-wrap {
-  order: -1;
+.program-rsvp-cta {
+  display: flex;
+  justify-content: center;
+  margin: 1.35rem 0 0.35rem;
 }
 
-.program-banner-wrap .program-banner {
-  order: 0;
-  height: 100%;
-  min-height: 180px;
+.program-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.85rem;
+  padding: 0.7rem 1.6rem;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--navy);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.program-cta:hover {
+  background: color-mix(in srgb, var(--gold) 88%, white);
+  transform: translateY(-1px);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -516,7 +532,7 @@ a {
 }
 
 .hero-compact {
-  min-height: 50svh;
+  min-height: min(72svh, 640px);
 }
 
 .invitee-name {
@@ -554,7 +570,7 @@ a {
 
 .program-section {
   background: var(--cream);
-  padding: 2.5rem 0 3.5rem;
+  padding: 0 0 3.5rem;
 }
 
 .program-layout {
@@ -566,11 +582,19 @@ a {
   border-radius: 0;
 }
 
-.program-banner {
+/* Mobile/tablet: full-bleed strip at the top of the section */
+.program-banner-wrap {
   order: -1;
-  height: 180px;
+  width: 100vw;
+  max-width: 100vw;
+  margin-inline: calc(50% - 50vw);
+}
+
+.program-banner {
+  width: 100%;
+  height: clamp(140px, 28vw, 280px);
   background: url("/program.jpg") center 35% / cover no-repeat;
-  border-radius: var(--radius-lg);
+  border-radius: 0;
 }
 
 .program-panel {
@@ -771,6 +795,19 @@ a {
   font-weight: 500;
 }
 
+.schedule-inline-link {
+  color: var(--navy);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+  transition: color 0.2s ease;
+}
+
+.schedule-inline-link:hover {
+  color: var(--gold-deep, var(--gold));
+}
+
 .evening-notes {
   margin: 2rem auto 0;
   max-width: 26rem;
@@ -805,41 +842,104 @@ a {
   color: var(--gold);
 }
 
-@media (min-width: 800px) {
+/* Tablet: keep strip + stacked content */
+@media (min-width: 641px) and (max-width: 1099px) {
+  .hero-content {
+    width: min(560px, calc(100% - 3rem));
+    padding: 2.75rem 1rem;
+  }
+
+  .program-section {
+    padding: 0 0 4rem;
+  }
+
+  .program-layout {
+    width: min(640px, calc(100% - 2.5rem));
+    gap: 1.75rem;
+  }
+
+  .program-banner {
+    height: clamp(180px, 26vw, 300px);
+    background-position: center 32%;
+  }
+
+  .program-panel {
+    padding: 0.25rem 0.5rem 1.5rem;
+  }
+
+  .program-panel .section-title {
+    text-align: center;
+  }
+
+  .program-panel .section-title::after {
+    margin-inline: auto;
+  }
+
+  .program-schedule,
+  .evening-notes {
+    margin-inline: auto;
+    max-width: 28rem;
+  }
+
+  .program-rsvp-cta {
+    justify-content: center;
+    margin-top: 1.5rem;
+  }
+
+  .links-block {
+    text-align: center;
+    margin-top: 2.25rem;
+  }
+
+  .quick-links {
+    justify-content: center;
+  }
+
+  .section {
+    width: min(560px, calc(100% - 3rem));
+    padding: 3.5rem 0;
+  }
+}
+
+/* Desktop: text + portrait image side by side */
+@media (min-width: 1100px) {
   .program-section {
     padding: 4.5rem 0 5rem;
   }
 
   .program-layout {
-    grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+    width: min(960px, calc(100% - 3rem));
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
     gap: 3.5rem;
-    align-items: center;
+    align-items: start;
     overflow: visible;
+    border-radius: 0;
+  }
+
+  .program-banner-wrap {
+    order: 0;
+    width: auto;
+    max-width: none;
+    margin-inline: 0;
+    align-self: start;
+    /* In RTL: second column sits on the left */
+    grid-column: 2;
+  }
+
+  .program-panel {
+    grid-column: 1;
+    background: transparent;
+    padding: 0;
     border-radius: 0;
   }
 
   .program-banner {
     order: 0;
     height: auto;
+    min-height: 0;
     aspect-ratio: 3 / 4;
     background-position: center 30%;
     border-radius: var(--radius-lg);
-  }
-
-  .program-banner-wrap {
-    order: 0;
-  }
-
-  .program-banner-wrap .program-banner {
-    min-height: 0;
-    height: auto;
-    aspect-ratio: 3 / 4;
-  }
-
-  .program-panel {
-    background: transparent;
-    padding: 0;
-    border-radius: 0;
   }
 
   .program-panel .section-title {
@@ -858,6 +958,10 @@ a {
 
   .links-block {
     text-align: right;
+  }
+
+  .program-rsvp-cta {
+    justify-content: flex-start;
   }
 
   .quick-links {
@@ -1051,9 +1155,37 @@ a {
   color: var(--navy);
 }
 
-.rsvp-summary .submit-btn,
-.rsvp-summary .text-link-btn {
+.rsvp-summary .submit-btn {
   width: 100%;
+}
+
+.rsvp-summary .text-link-btn,
+.success-panel .text-link-btn {
+  width: auto;
+  justify-self: center;
+  margin-top: 0.15rem;
+}
+
+.rsvp-summary-actions {
+  display: grid;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.rsvp-summary-actions .submit-btn {
+  width: 100%;
+}
+
+.submit-btn.ghost {
+  background: transparent;
+  color: var(--navy);
+  border-color: var(--navy);
+}
+
+.submit-btn.ghost:hover {
+  background: var(--navy);
+  color: var(--paper);
 }
 
 .field {
@@ -1351,11 +1483,55 @@ a {
   unicode-bidi: isolate;
 }
 
+.otp-autofill-input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0.02;
+  color: transparent;
+  caret-color: transparent;
+  background: transparent;
+  font-size: 1.25rem;
+  letter-spacing: 1.6rem;
+  text-align: left;
+  direction: ltr;
+  outline: none;
+}
+
 .otp-slots {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.35rem;
   direction: ltr;
+  pointer-events: none;
+}
+
+.otp-slot-display {
+  display: grid;
+  place-items: center;
+  min-height: 2.55rem;
+  margin: 0;
+  padding: 0.35rem 0;
+  border-bottom: 1.5px solid var(--border);
+  font-family: var(--font-sans), "Open Sans Hebrew", sans-serif;
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--navy);
+  line-height: 1;
+  transition: border-color 0.15s ease;
+}
+
+.otp-slot-display.filled {
+  border-bottom-color: var(--navy);
+}
+
+.otp-slot-display.active {
+  border-bottom-color: var(--gold);
 }
 
 .otp-slot-input {
@@ -1437,6 +1613,11 @@ a {
 @media (max-width: 420px) {
   .otp-code-field {
     width: min(100%, 15.25rem);
+  }
+
+  .otp-slot-display {
+    min-height: 2.35rem;
+    font-size: 1.15rem;
   }
 
   .otp-slot-input {

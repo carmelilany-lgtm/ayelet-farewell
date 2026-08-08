@@ -1,3 +1,4 @@
+import type { ReplyButton } from "./green-api";
 import { formatPhoneDisplay, normalizePhone, phonesMatch } from "./phone";
 import { inviteAbsoluteUrl, siteAbsoluteUrl } from "./invite-token";
 import { getSummary, listRsvps, getRsvpById } from "./store";
@@ -22,6 +23,7 @@ import {
 } from "./wa-organizer-session";
 
 const PAGE_SIZE = 8;
+const MAIN_PAGE_COUNT = 4;
 
 const STATUS_LABEL: Record<RsvpStatus, string> = {
   imported: "ממתין לאישור",
@@ -30,6 +32,18 @@ const STATUS_LABEL: Record<RsvpStatus, string> = {
   maybe: "עדיין לא יודע/ת",
 };
 
+export type MenuReply = {
+  handled: true;
+  message: string;
+  buttons?: ReplyButton[];
+  footer?: string;
+  exited?: boolean;
+};
+
+function btn(buttonId: string, buttonText: string): ReplyButton {
+  return { buttonId, buttonText };
+}
+
 function navFooter(opts?: { onMain?: boolean }): string {
   if (opts?.onMain) {
     return `\n0 יציאה מהתפריט`;
@@ -37,8 +51,48 @@ function navFooter(opts?: { onMain?: boolean }): string {
   return `\n0 אחורה\n9 תפריט ראשי`;
 }
 
-export function renderMainMenu(): string {
-  return `*תפריט מארגנים*
+function mainPageButtons(page: number): ReplyButton[] {
+  switch (page) {
+    case 0:
+      return [btn("sum", "סיכום"), btn("search", "חיפוש אורח"), btn("more", "עוד")];
+    case 1:
+      return [btn("conf", "אושרו הגעה"), btn("pend", "ממתינים"), btn("more", "עוד")];
+    case 2:
+      return [
+        btn("maybe", "לא יודעים"),
+        btn("no", "לא מגיעים"),
+        btn("more", "עוד"),
+      ];
+    default:
+      return [
+        btn("manual", "נוספו ידנית"),
+        btn("addhelp", "איך להוסיף"),
+        btn("exit", "יציאה"),
+      ];
+  }
+}
+
+function navButtons(opts?: {
+  hasPrev?: boolean;
+  hasNext?: boolean;
+}): ReplyButton[] {
+  const hasPrev = Boolean(opts?.hasPrev);
+  const hasNext = Boolean(opts?.hasNext);
+  if (hasPrev && hasNext) {
+    return [btn("prev", "הקודם"), btn("next", "הבא"), btn("home", "תפריט")];
+  }
+  if (hasNext) {
+    return [btn("back", "אחורה"), btn("next", "הבא"), btn("home", "תפריט")];
+  }
+  if (hasPrev) {
+    return [btn("back", "אחורה"), btn("prev", "הקודם"), btn("home", "תפריט")];
+  }
+  return [btn("back", "אחורה"), btn("home", "תפריט")];
+}
+
+export function renderMainMenu(page = 0): string {
+  const p = Math.max(0, Math.min(MAIN_PAGE_COUNT - 1, page));
+  return `*תפריט מארגנים* (${p + 1}/${MAIN_PAGE_COUNT})
 מידע בלבד — אין שליחת הודעות לאורחים מכאן.
 
 1 סיכום
@@ -106,7 +160,10 @@ function listTitle(filter: ListFilter): string {
   }
 }
 
-function renderList(screen: Extract<MenuScreen, { id: "list" }>, byId: Map<string, Rsvp>): string {
+function renderList(
+  screen: Extract<MenuScreen, { id: "list" }>,
+  byId: Map<string, Rsvp>
+): string {
   const { start, slice, total, hasMore, hasPrev } = pageSlice(
     screen.ids,
     screen.page
@@ -186,71 +243,203 @@ function filterGuests(all: Rsvp[], filter: ListFilter): Rsvp[] {
 async function renderScreen(
   screen: MenuScreen,
   all: Rsvp[]
-): Promise<string> {
+): Promise<{ message: string; buttons: ReplyButton[]; footer?: string }> {
   const byId = new Map(all.map((r) => [r.id, r]));
   switch (screen.id) {
-    case "main":
-      return renderMainMenu();
+    case "main": {
+      const page = screen.page ?? 0;
+      return {
+        message: renderMainMenu(page),
+        buttons: mainPageButtons(page),
+        footer: "או בחרו מספר מהרשימה",
+      };
+    }
     case "summary":
-      return renderSummary(await getSummary());
+      return {
+        message: renderSummary(await getSummary()),
+        buttons: navButtons(),
+      };
     case "search_prompt":
-      return renderSearchPrompt();
+      return {
+        message: renderSearchPrompt(),
+        buttons: navButtons(),
+        footer: "הקלידו שם או טלפון",
+      };
     case "add_help":
-      return renderAddHelp();
-    case "list":
-      return renderList(screen, byId);
+      return {
+        message: renderAddHelp(),
+        buttons: navButtons(),
+      };
+    case "list": {
+      const { hasMore, hasPrev } = pageSlice(screen.ids, screen.page);
+      return {
+        message: renderList(screen, byId),
+        buttons: navButtons({ hasPrev, hasNext: hasMore }),
+        footer: "בחרו מספר אורח מהרשימה",
+      };
+    }
     case "guest": {
-      const guest = byId.get(screen.guestId) || (await getRsvpById(screen.guestId));
-      if (!guest) return `אורח לא נמצא.\n${navFooter()}`;
-      return formatGuestFull(guest);
+      const guest =
+        byId.get(screen.guestId) || (await getRsvpById(screen.guestId));
+      if (!guest) {
+        return {
+          message: `אורח לא נמצא.\n${navFooter()}`,
+          buttons: navButtons(),
+        };
+      }
+      return {
+        message: formatGuestFull(guest),
+        buttons: navButtons(),
+      };
     }
   }
 }
 
-function goMain(sessionPhone: string) {
-  return saveOrganizerMenuSession(sessionPhone, { id: "main" }, []);
+function goMain(sessionPhone: string, page = 0) {
+  return saveOrganizerMenuSession(
+    sessionPhone,
+    { id: "main", page },
+    []
+  );
+}
+
+async function replyForScreen(
+  sessionPhone: string,
+  screen: MenuScreen,
+  stack: MenuScreen[],
+  exited?: boolean
+): Promise<MenuReply> {
+  const saved = await saveOrganizerMenuSession(
+    sessionPhone,
+    screen,
+    screen.id === "main" ? [] : stack
+  );
+  const all = await listRsvps();
+  const rendered = await renderScreen(saved!.screen, all);
+  return {
+    handled: true,
+    exited,
+    message: rendered.message,
+    buttons: rendered.buttons,
+    footer: rendered.footer,
+  };
 }
 
 async function goBack(
   sessionPhone: string,
   session: OrganizerMenuSession
-): Promise<{ session: OrganizerMenuSession; message: string } | { exit: true; message: string }> {
+): Promise<MenuReply> {
   if (session.screen.id === "main" || session.stack.length === 0) {
     await clearOrganizerMenuSession(sessionPhone);
-    return { exit: true, message: "יצאתם מהתפריט. לשוב — שלחו: עזרה" };
+    return {
+      handled: true,
+      exited: true,
+      message: "יצאתם מהתפריט. לשוב — שלחו: עזרה",
+    };
   }
   const stack = [...session.stack];
   const prev = stack.pop()!;
-  const saved = await saveOrganizerMenuSession(sessionPhone, prev, stack);
-  const all = await listRsvps();
-  return {
-    session: saved!,
-    message: await renderScreen(prev, all),
-  };
+  return replyForScreen(sessionPhone, prev, stack);
 }
 
 async function pushScreen(
   sessionPhone: string,
   session: OrganizerMenuSession | null,
   next: MenuScreen
-): Promise<{ session: OrganizerMenuSession; message: string }> {
+): Promise<MenuReply> {
   const stack = session ? [...session.stack, session.screen] : [];
-  const saved = await saveOrganizerMenuSession(
-    sessionPhone,
-    next,
-    next.id === "main" ? [] : stack
-  );
-  const all = await listRsvps();
-  return {
-    session: saved!,
-    message: await renderScreen(next, all),
-  };
+  return replyForScreen(sessionPhone, next, next.id === "main" ? [] : stack);
 }
 
 function parseChoice(text: string): number | null {
   const t = text.replace(/\r\n/g, "\n").trim();
   if (!/^\d{1,2}$/.test(t)) return null;
   return Number(t);
+}
+
+/** Map button id / label to a stable action token. */
+function resolveAction(text: string, buttonId?: string | null): string {
+  const id = (buttonId || "").trim().toLowerCase();
+  if (id) return id;
+
+  const t = text.replace(/\r\n/g, "\n").trim().toLowerCase();
+  const byLabel: Record<string, string> = {
+    סיכום: "sum",
+    "חיפוש אורח": "search",
+    חיפוש: "search",
+    עוד: "more",
+    "אושרו הגעה": "conf",
+    אושרו: "conf",
+    ממתינים: "pend",
+    "ממתינים לאישור": "pend",
+    "לא יודעים": "maybe",
+    "עדיין לא יודעים": "maybe",
+    "לא מגיעים": "no",
+    "נוספו ידנית": "manual",
+    "איך להוסיף": "addhelp",
+    יציאה: "exit",
+    אחורה: "back",
+    חזרה: "back",
+    תפריט: "home",
+    "תפריט ראשי": "home",
+    הקודם: "prev",
+    הבא: "next",
+  };
+  return byLabel[t] || t;
+}
+
+async function openList(
+  phone: string,
+  session: OrganizerMenuSession,
+  filter: ListFilter
+): Promise<MenuReply> {
+  const all = await listRsvps();
+  const matches = filterGuests(all, filter);
+  const next: MenuScreen = {
+    id: "list",
+    filter,
+    ids: matches.map((r) => r.id),
+    page: 0,
+  };
+  return pushScreen(phone, session, next);
+}
+
+async function handleMainAction(
+  phone: string,
+  session: OrganizerMenuSession,
+  action: string
+): Promise<MenuReply | null> {
+  const page = session.screen.id === "main" ? session.screen.page || 0 : 0;
+
+  if (action === "more") {
+    const nextPage = (page + 1) % MAIN_PAGE_COUNT;
+    return replyForScreen(phone, { id: "main", page: nextPage }, []);
+  }
+  if (action === "sum") {
+    return pushScreen(phone, session, { id: "summary" });
+  }
+  if (action === "search") {
+    return pushScreen(phone, session, { id: "search_prompt" });
+  }
+  if (action === "addhelp") {
+    return pushScreen(phone, session, { id: "add_help" });
+  }
+  if (action === "conf") {
+    return openList(phone, session, { kind: "status", status: "confirmed" });
+  }
+  if (action === "pend") {
+    return openList(phone, session, { kind: "status", status: "imported" });
+  }
+  if (action === "maybe") {
+    return openList(phone, session, { kind: "status", status: "maybe" });
+  }
+  if (action === "no") {
+    return openList(phone, session, { kind: "status", status: "declined" });
+  }
+  if (action === "manual") {
+    return openList(phone, session, { kind: "manual_pending" });
+  }
+  return null;
 }
 
 /**
@@ -260,12 +449,14 @@ function parseChoice(text: string): number | null {
 export async function handleOrganizerMenu(opts: {
   organizerPhone: string;
   text: string;
-}): Promise<{ handled: true; message: string; exited?: boolean } | null> {
+  buttonId?: string | null;
+}): Promise<MenuReply | null> {
   const phone = opts.organizerPhone;
   const text = opts.text.trim();
+  const action = resolveAction(text, opts.buttonId);
   let session = await getOrganizerMenuSession(phone);
 
-  if (isMenuExitCommand(text)) {
+  if (action === "exit" || isMenuExitCommand(text)) {
     await clearOrganizerMenuSession(phone);
     return {
       handled: true,
@@ -274,84 +465,133 @@ export async function handleOrganizerMenu(opts: {
     };
   }
 
-  if (isHelpOrMenuOpen(text) || isMenuHomeCommand(text)) {
-    const opened = await goMain(phone);
+  if (
+    isHelpOrMenuOpen(text) ||
+    isMenuHomeCommand(text) ||
+    action === "home"
+  ) {
+    const opened = await goMain(phone, 0);
+    const rendered = await renderScreen(opened!.screen, await listRsvps());
     return {
       handled: true,
-      message: await renderScreen(opened!.screen, await listRsvps()),
+      message: rendered.message,
+      buttons: rendered.buttons,
+      footer: rendered.footer,
     };
   }
 
   if (!session) return null;
 
-  if (isMenuBackCommand(text)) {
-    const result = await goBack(phone, session);
-    if ("exit" in result) {
-      return { handled: true, exited: true, message: result.message };
-    }
-    return { handled: true, message: result.message };
+  if (action === "back" || isMenuBackCommand(text)) {
+    return goBack(phone, session);
   }
 
-  // Search prompt: free text (not a lone digit nav we already handled)
+  // Search prompt: free text (not a lone digit / known button action)
   if (session.screen.id === "search_prompt") {
     const choice = parseChoice(text);
-    if (choice === null) {
-      const all = await listRsvps();
-      const matches = filterGuests(all, { kind: "search", query: text });
-      const next: MenuScreen = {
-        id: "list",
-        filter: { kind: "search", query: text.trim() },
-        ids: matches.map((r) => r.id),
-        page: 0,
-      };
-      const pushed = await pushScreen(phone, session, next);
-      return { handled: true, message: pushed.message };
+    const isNavAction = [
+      "sum",
+      "search",
+      "more",
+      "conf",
+      "pend",
+      "maybe",
+      "no",
+      "manual",
+      "addhelp",
+      "prev",
+      "next",
+      "back",
+      "home",
+      "exit",
+    ].includes(action);
+
+    if (choice === null && !isNavAction && !opts.buttonId) {
+      return openList(phone, session, {
+        kind: "search",
+        query: text.trim(),
+      });
     }
+  }
+
+  // Button actions that apply on any screen
+  if (action === "prev" || action === "next") {
+    if (session.screen.id === "list") {
+      const { hasMore, hasPrev } = pageSlice(
+        session.screen.ids,
+        session.screen.page
+      );
+      if (action === "prev" && hasPrev) {
+        return replyForScreen(
+          phone,
+          { ...session.screen, page: session.screen.page - 1 },
+          session.stack
+        );
+      }
+      if (action === "next" && hasMore) {
+        return replyForScreen(
+          phone,
+          { ...session.screen, page: session.screen.page + 1 },
+          session.stack
+        );
+      }
+    }
+  }
+
+  if (session.screen.id === "main") {
+    const fromButton = await handleMainAction(phone, session, action);
+    if (fromButton) return fromButton;
   }
 
   const choice = parseChoice(text);
   if (choice === null) {
+    // Unknown button on non-main screens → gentle hint with nav buttons
+    if (session.screen.id !== "main") {
+      const rendered = await renderScreen(session.screen, await listRsvps());
+      return {
+        handled: true,
+        message: `לא הבנתי. השתמשו בכפתורים או במספרים.\n\n${rendered.message}`,
+        buttons: rendered.buttons,
+        footer: rendered.footer,
+      };
+    }
+    const rendered = await renderScreen(session.screen, await listRsvps());
     return {
       handled: true,
-      message: `לא הבנתי. בחרו מספר מהתפריט, או שלחו 9 לתפריט ראשי.\n${navFooter({ onMain: session.screen.id === "main" })}`,
+      message: `לא הבנתי. בחרו כפתור או מספר מהתפריט.\n\n${rendered.message}`,
+      buttons: rendered.buttons,
+      footer: rendered.footer,
     };
   }
 
-  // Global 9 = home (also covered by isMenuHomeCommand for "9")
+  // Global 9 = home
   if (choice === 9) {
-    const opened = await goMain(phone);
+    const opened = await goMain(phone, 0);
+    const rendered = await renderScreen(opened!.screen, await listRsvps());
     return {
       handled: true,
-      message: await renderScreen(opened!.screen, await listRsvps()),
+      message: rendered.message,
+      buttons: rendered.buttons,
+      footer: rendered.footer,
     };
   }
 
   if (choice === 0) {
-    const result = await goBack(phone, session);
-    if ("exit" in result) {
-      return { handled: true, exited: true, message: result.message };
-    }
-    return { handled: true, message: result.message };
+    return goBack(phone, session);
   }
 
   session = (await getOrganizerMenuSession(phone)) || session;
   const screen = session.screen;
 
   if (screen.id === "main") {
-    const map: Record<number, MenuScreen | null> = {
-      1: { id: "summary" },
-      2: { id: "search_prompt" },
-      3: null, // filled below with list
-      4: null,
-      5: null,
-      6: null,
-      7: null,
-      8: { id: "add_help" },
-    };
-
-    if (choice === 1 || choice === 2 || choice === 8) {
-      const pushed = await pushScreen(phone, session, map[choice]!);
-      return { handled: true, message: pushed.message };
+    if (choice === 1) {
+      return pushScreen(phone, session, { id: "summary" });
+    }
+    if (choice === 2) {
+      return pushScreen(phone, session, { id: "search_prompt" });
+    }
+    if (choice === 8) {
+      return pushScreen(phone, session, { id: "add_help" });
     }
 
     const statusMap: Record<number, ListFilter> = {
@@ -363,34 +603,34 @@ export async function handleOrganizerMenu(opts: {
     };
     const filter = statusMap[choice];
     if (!filter) {
+      const rendered = await renderScreen(screen, await listRsvps());
       return {
         handled: true,
-        message: `בחרו 1–8.\n${renderMainMenu()}`,
+        message: `בחרו 1–8.\n\n${rendered.message}`,
+        buttons: rendered.buttons,
+        footer: rendered.footer,
       };
     }
-    const all = await listRsvps();
-    const matches = filterGuests(all, filter);
-    const next: MenuScreen = {
-      id: "list",
-      filter,
-      ids: matches.map((r) => r.id),
-      page: 0,
-    };
-    const pushed = await pushScreen(phone, session, next);
-    return { handled: true, message: pushed.message };
+    return openList(phone, session, filter);
   }
 
   if (screen.id === "summary" || screen.id === "add_help") {
+    const rendered = await renderScreen(screen, await listRsvps());
     return {
       handled: true,
-      message: `בחרו 0 אחורה או 9 תפריט ראשי.\n${navFooter()}`,
+      message: `בחרו אחורה או תפריט.\n\n${rendered.message}`,
+      buttons: rendered.buttons,
+      footer: rendered.footer,
     };
   }
 
   if (screen.id === "search_prompt") {
+    const rendered = await renderScreen(screen, await listRsvps());
     return {
       handled: true,
-      message: renderSearchPrompt(),
+      message: rendered.message,
+      buttons: rendered.buttons,
+      footer: rendered.footer,
     };
   }
 
@@ -403,49 +643,48 @@ export async function handleOrganizerMenu(opts: {
         guestId,
         from: screen,
       };
-      const pushed = await pushScreen(phone, session, next);
-      return { handled: true, message: pushed.message };
+      return pushScreen(phone, session, next);
     }
     if (choice === 10 && hasPrev) {
-      const next: MenuScreen = { ...screen, page: screen.page - 1 };
-      const saved = await saveOrganizerMenuSession(
+      return replyForScreen(
         phone,
-        next,
+        { ...screen, page: screen.page - 1 },
         session.stack
       );
-      return {
-        handled: true,
-        message: await renderScreen(saved!.screen, await listRsvps()),
-      };
     }
     if (choice === 11 && hasMore) {
-      const next: MenuScreen = { ...screen, page: screen.page + 1 };
-      const saved = await saveOrganizerMenuSession(
+      return replyForScreen(
         phone,
-        next,
+        { ...screen, page: screen.page + 1 },
         session.stack
       );
-      return {
-        handled: true,
-        message: await renderScreen(saved!.screen, await listRsvps()),
-      };
     }
+    const rendered = await renderScreen(screen, await listRsvps());
     return {
       handled: true,
-      message: `בחרו מספר מהרשימה, 0 אחורה או 9 תפריט.\n${navFooter()}`,
+      message: `בחרו מספר מהרשימה, אחורה או תפריט.\n\n${rendered.message}`,
+      buttons: rendered.buttons,
+      footer: rendered.footer,
     };
   }
 
   if (screen.id === "guest") {
+    const rendered = await renderScreen(screen, await listRsvps());
     return {
       handled: true,
-      message: `בחרו 0 אחורה או 9 תפריט ראשי.\n${navFooter()}`,
+      message: `בחרו אחורה או תפריט.\n\n${rendered.message}`,
+      buttons: rendered.buttons,
+      footer: rendered.footer,
     };
   }
 
+  const opened = await goMain(phone, 0);
+  const rendered = await renderScreen(opened!.screen, await listRsvps());
   return {
     handled: true,
-    message: renderMainMenu(),
+    message: rendered.message,
+    buttons: rendered.buttons,
+    footer: rendered.footer,
   };
 }
 

@@ -47,6 +47,7 @@ export type SiteContent = {
   submitRsvpLabel: string;
   alreadyConfirmedNote: string;
   updateStatusLabel: string;
+  viewProgramLabel: string;
   cancelUpdateLabel: string;
   phoneLabel: string;
   sendOtpLabel: string;
@@ -314,6 +315,7 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   submitRsvpLabel: "שליחה",
   alreadyConfirmedNote: "אלה הפרטים שכבר יש לנו. אפשר לעדכן אם משהו השתנה.",
   updateStatusLabel: "עדכון סטטוס",
+  viewProgramLabel: "צפייה בתוכנית",
   cancelUpdateLabel: "ביטול",
   phoneLabel: "מספר טלפון נייד",
   sendOtpLabel: "שלחו לי קוד ב־WhatsApp",
@@ -328,7 +330,7 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   loadingLabel: "טוען…",
   guestGreeting: "שלום {name},",
   otpMessageTemplate:
-    "קוד האימות למסיבת הפרידה של איילת: {code}\n\nהקוד תקף ל־10 דקות.\nאל תשתפו את הקוד עם אחרים.",
+    "קוד האימות למסיבת הפרידה של איילת:\n\n{code}\n\nהקוד תקף ל־10 דקות.",
   reminderTemplate: `שלום {name},
 
 ראינו שעדיין לא נרשמת למסיבת הפרידה של איילת 🙏
@@ -445,6 +447,21 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
         `${personalLinkLabel}:`
       );
     }
+  }
+
+  if (
+    next.otpMessageTemplate.trim() ===
+      "קוד האימות למסיבת הפרידה של איילת: {code}\n\nהקוד תקף ל־10 דקות.\nאל תשתפו את הקוד עם אחרים." ||
+    next.otpMessageTemplate.trim() ===
+      "קוד האימות למסיבת הפרידה של איילת:\n\n{code}\n\nהקוד תקף ל־10 דקות.\nאל תשתפו את הקוד עם אחרים." ||
+    next.otpMessageTemplate.trim() ===
+      "{code} is your verification code\n\nקוד האימות למסיבת הפרידה של איילת.\nהקוד תקף ל־10 דקות.\nאל תשתפו את הקוד עם אחרים."
+  ) {
+    next.otpMessageTemplate = DEFAULT_SITE_CONTENT.otpMessageTemplate;
+  }
+
+  if (next.otpSentLead.trim() === "נשלח קוד ל־WhatsApp — לחצו «העתק קוד» וחזרו לכאן") {
+    next.otpSentLead = DEFAULT_SITE_CONTENT.otpSentLead;
   }
 
   return next;

@@ -3,7 +3,7 @@ import {
   isValidAdminToken,
   parseBearerOrCookie,
 } from "@/lib/admin-auth";
-import { hasGreenApiConfig, sendWhatsAppText } from "@/lib/green-api";
+import { hasGreenApiConfig, sendWhatsAppTextWithRetry } from "@/lib/green-api";
 import { buildReminderMessage } from "@/lib/reminder-message";
 import {
   getRsvpById,
@@ -69,7 +69,7 @@ async function sendOne(
     origin,
   });
 
-  const result = await sendWhatsAppText(rsvp.phone, message);
+  const result = await sendWhatsAppTextWithRetry(rsvp.phone, message, 3);
   if (!result.ok) {
     return {
       id: rsvp.id,

@@ -7,7 +7,7 @@ import type { RsvpStatus } from "./types";
 const DATA_DIR = path.join(process.cwd(), "data");
 const FILE = path.join(DATA_DIR, "wa-organizer-sessions.json");
 const SITE_CONTENT_ID = "wa_organizer_sessions";
-const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const TTL_MS = 15 * 60 * 1000; // close menu after 15 min idle
 
 export type ListFilter =
   | { kind: "status"; status: RsvpStatus }
@@ -15,7 +15,7 @@ export type ListFilter =
   | { kind: "search"; query: string };
 
 export type MenuScreen =
-  | { id: "main" }
+  | { id: "main"; page: number }
   | { id: "summary" }
   | { id: "search_prompt" }
   | { id: "add_help" }
@@ -93,10 +93,15 @@ export async function getOrganizerMenuSession(
   const organizerKey = organizerKeyFromPhone(organizerPhone);
   if (!organizerKey) return null;
   const store = await readStore();
-  return (
+  const found =
     store.items.find((i) => i.organizerKey === organizerKey && isFresh(i)) ||
-    null
-  );
+    null;
+  if (!found) return null;
+  return {
+    ...found,
+    screen: normalizeMenuScreen(found.screen),
+    stack: found.stack.map(normalizeMenuScreen),
+  };
 }
 
 export async function saveOrganizerMenuSession(
@@ -153,4 +158,12 @@ export function isMenuBackCommand(text: string): boolean {
 export function isMenuExitCommand(text: string): boolean {
   const t = text.replace(/\r\n/g, "\n").trim().toLowerCase();
   return /^(יציאה|סגור|exit|bye)$/i.test(t);
+}
+
+/** Normalize legacy sessions that stored `{ id: "main" }` without page. */
+export function normalizeMenuScreen(screen: MenuScreen): MenuScreen {
+  if (screen.id === "main" && typeof (screen as { page?: number }).page !== "number") {
+    return { id: "main", page: 0 };
+  }
+  return screen;
 }

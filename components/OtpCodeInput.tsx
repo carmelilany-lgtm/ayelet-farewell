@@ -15,6 +15,13 @@ function digitsOnly(raw: string, max: number) {
   return raw.replace(/\D/g, "").slice(0, max);
 }
 
+/** Prefer an exact N-digit code; also accept "123456 is your…" style strings. */
+function extractOtp(raw: string, length: number): string {
+  const exact = raw.trim().match(new RegExp(`(?<!\\d)(\\d{${length}})(?!\\d)`));
+  if (exact?.[1]) return exact[1];
+  return digitsOnly(raw, length);
+}
+
 export function OtpCodeInput({
   id = "code",
   value,
@@ -23,100 +30,130 @@ export function OtpCodeInput({
   disabled = false,
   length = 6,
 }: Props) {
-  const refs = useRef<Array<HTMLInputElement | null>>([]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const onChangeRef = useRef(onChange);
+  const valueRef = useRef(value);
+  onChangeRef.current = onChange;
+  valueRef.current = value;
   const digits = Array.from({ length }, (_, i) => value[i] ?? "");
 
   useEffect(() => {
     if (disabled) return;
-    refs.current[0]?.focus();
+    inputRef.current?.focus();
   }, [disabled]);
 
-  function setDigitAt(index: number, char: string) {
-    const next = digits.slice();
-    next[index] = char;
-    onChange(next.join("").replace(/\s/g, "").slice(0, length));
-  }
+  // After "Copy code" in WhatsApp: try clipboard when returning to the page.
+  useEffect(() => {
+    if (disabled || typeof window === "undefined") return;
+    if (!navigator.clipboard?.readText) return;
 
-  function applyCode(raw: string, startIndex = 0) {
-    const incoming = digitsOnly(raw, length);
-    if (!incoming) return;
-    const next = digits.slice();
-    for (let i = 0; i < incoming.length && startIndex + i < length; i++) {
-      next[startIndex + i] = incoming[i]!;
+    async function tryClipboard() {
+      if (valueRef.current.length >= length) return;
+      try {
+        const text = await navigator.clipboard.readText();
+        const code = extractOtp(text, length);
+        if (code.length === length) onChangeRef.current(code);
+      } catch {
+        /* clipboard permission / iOS without gesture */
+      }
     }
-    const joined = next.join("").slice(0, length);
-    onChange(joined);
-    const focusAt = Math.min(startIndex + incoming.length, length - 1);
-    refs.current[focusAt]?.focus();
-  }
+
+    function onVisible() {
+      if (document.visibilityState === "visible") void tryClipboard();
+    }
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", tryClipboard);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", tryClipboard);
+    };
+  }, [disabled, length]);
+
+  // Android Chrome WebOTP (SMS only — kept as progressive enhancement).
+  useEffect(() => {
+    if (disabled || typeof window === "undefined") return;
+    const credentials = (
+      navigator as Navigator & {
+        credentials?: {
+          get: (opts: unknown) => Promise<{ code?: string } | null>;
+        };
+      }
+    ).credentials;
+    if (!credentials || !("OTPCredential" in window)) return;
+
+    const ac = new AbortController();
+    void credentials
+      .get({
+        otp: { transport: ["sms"] },
+        signal: ac.signal,
+      })
+      .then((cred) => {
+        const code = extractOtp(String(cred?.code ?? ""), length);
+        if (code.length === length) onChangeRef.current(code);
+      })
+      .catch(() => {
+        /* cancelled / unsupported */
+      });
+
+    return () => ac.abort();
+  }, [disabled, length]);
 
   return (
     <div className="otp-code-field" dir="ltr">
-      <label htmlFor={`${id}-0`} className="sr-only">
+      <label htmlFor={id} className="sr-only">
         {label}
       </label>
-      <div className="otp-slots" dir="ltr" role="group" aria-label={label}>
+
+      <input
+        ref={inputRef}
+        id={id}
+        className="otp-autofill-input"
+        type="text"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        name="one-time-code"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        enterKeyHint="done"
+        pattern="[0-9]*"
+        maxLength={length}
+        dir="ltr"
+        disabled={disabled}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(digitsOnly(e.target.value, length))}
+        onFocus={() => {
+          // Tap field after copying in WhatsApp — best chance for clipboard read.
+          if (!navigator.clipboard?.readText) return;
+          if (valueRef.current.length >= length) return;
+          void navigator.clipboard
+            .readText()
+            .then((text) => {
+              const code = extractOtp(text, length);
+              if (code.length === length) onChangeRef.current(code);
+            })
+            .catch(() => {});
+        }}
+        onPaste={(e) => {
+          e.preventDefault();
+          onChange(extractOtp(e.clipboardData.getData("text"), length));
+        }}
+      />
+
+      <div className="otp-slots" dir="ltr" aria-hidden="true">
         {digits.map((digit, index) => {
-          const active = value.length === index || (value.length === length && index === length - 1);
+          const active =
+            value.length === index ||
+            (value.length === length && index === length - 1);
           return (
-            <input
+            <div
               key={index}
-              id={index === 0 ? id : `${id}-${index}`}
-              ref={(el) => {
-                refs.current[index] = el;
-              }}
-              className={`otp-slot-input${digit ? " filled" : ""}${active ? " active" : ""}`}
-              type="text"
-              inputMode="numeric"
-              autoComplete={index === 0 ? "one-time-code" : "off"}
-              name={index === 0 ? "one-time-code" : undefined}
-              pattern="[0-9]*"
-              maxLength={index === 0 ? length : 1}
-              dir="ltr"
-              disabled={disabled}
-              aria-label={`${label} ספרה ${index + 1}`}
-              value={digit}
-              onChange={(e) => {
-                const raw = e.target.value;
-                // SMS autofill / paste into first box may deliver the full code.
-                if (raw.length > 1) {
-                  applyCode(raw, index === 0 ? 0 : index);
-                  return;
-                }
-                const d = digitsOnly(raw, 1);
-                setDigitAt(index, d);
-                if (d && index < length - 1) {
-                  refs.current[index + 1]?.focus();
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Backspace") {
-                  e.preventDefault();
-                  if (digits[index]) {
-                    setDigitAt(index, "");
-                    return;
-                  }
-                  if (index > 0) {
-                    setDigitAt(index - 1, "");
-                    refs.current[index - 1]?.focus();
-                  }
-                  return;
-                }
-                if (e.key === "ArrowLeft" && index > 0) {
-                  e.preventDefault();
-                  refs.current[index - 1]?.focus();
-                }
-                if (e.key === "ArrowRight" && index < length - 1) {
-                  e.preventDefault();
-                  refs.current[index + 1]?.focus();
-                }
-              }}
-              onPaste={(e) => {
-                e.preventDefault();
-                applyCode(e.clipboardData.getData("text"), 0);
-              }}
-              onFocus={(e) => e.target.select()}
-            />
+              className={`otp-slot-display${digit ? " filled" : ""}${active ? " active" : ""}`}
+            >
+              {digit}
+            </div>
           );
         })}
       </div>

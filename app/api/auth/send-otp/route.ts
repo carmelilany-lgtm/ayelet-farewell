@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { hasGreenApiConfig, sendWhatsAppText } from "@/lib/green-api";
+import { hasGreenApiConfig, sendWhatsAppOtpWithRetry } from "@/lib/green-api";
 import { normalizePhone, phoneValidationError } from "@/lib/phone";
 import { generateOtpCode, getOtpAgeMs, saveOtp } from "@/lib/otp";
 import { buildOtpMessage } from "@/lib/reminder-message";
@@ -92,7 +92,8 @@ export async function POST(request: Request) {
 
     const code = generateOtpCode();
     await saveOtp(phone, code);
-    const sent = await sendWhatsAppText(phone, await buildOtpMessage(code));
+    const body = await buildOtpMessage(code);
+    const sent = await sendWhatsAppOtpWithRetry(phone, code, body);
     if (!sent.ok) {
       return Response.json({ error: sent.error }, { status: 502 });
     }

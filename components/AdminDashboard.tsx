@@ -1137,7 +1137,8 @@ export function AdminDashboard() {
               </pre>
               <p className="admin-guest-accordion-lead">
                 לתפריט מידע (סיכום / חיפוש / רשימות) שלחו למספר המערכת:{" "}
-                <strong>עזרה</strong> — ניווט במספרים, בלי שליחת הודעות לאורחים.
+                <strong>עזרה</strong> — כפתורים לחיצים (או מספרים), בלי שליחת
+                הודעות לאורחים.
               </p>
               <p className="admin-guest-accordion-lead">
                 אפשר גם כאן בטופס — שם ומספר בלבד, למי שטרם נרשם. לא ניתן להוסיף
@@ -1378,6 +1379,7 @@ export function AdminDashboard() {
                       rows: 2,
                     },
                     { key: "updateStatusLabel", label: "כפתור עדכון סטטוס" },
+                    { key: "viewProgramLabel", label: "כפתור צפייה בתוכנית" },
                     { key: "cancelUpdateLabel", label: "כפתור ביטול" },
                     { key: "guestGreeting", label: "ברכת שלום", hint: "עם {name}" },
                     { key: "statusLegend", label: "שאלת הגעה" },

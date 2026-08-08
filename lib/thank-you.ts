@@ -37,7 +37,10 @@ export function isUnchangedRsvp(opts: {
   );
 }
 
-/** Pick success copy based on what the guest changed. */
+/**
+ * Pick success copy based on what the guest changed.
+ * Status changes after the first RSVP use "updated" when returning to confirmed.
+ */
 export function resolveThankYouKind(opts: {
   previousStatus: RsvpStatus;
   previousGuestCount: number;
@@ -50,6 +53,11 @@ export function resolveThankYouKind(opts: {
   // First confirmation after import / manual add — always "confirmed".
   if (opts.previousStatus === "imported") {
     return "confirmed";
+  }
+
+  // Returning to confirmed from maybe/declined, or changing guest count.
+  if (opts.previousStatus !== "confirmed") {
+    return "updated";
   }
 
   const baselineCount = effectiveGuestCount(

@@ -5,6 +5,7 @@ import { Reveal } from "@/components/Reveal";
 import { SmoothScrollLink } from "@/components/SmoothScrollLink";
 import type { SiteContent } from "@/lib/site-content";
 import { formatProgramTimeLabel } from "@/lib/site-content-defaults";
+import type { ReactNode } from "react";
 
 type Props = {
   content: SiteContent;
@@ -12,12 +13,160 @@ type Props = {
   children?: React.ReactNode;
 };
 
+const SCHEDULE_INLINE_LINKS: Array<{ label: string; href: string }> = [
+  { label: "לונא ביסטרו", href: "https://luna-bistro.co.il/" },
+  { label: "DJ mayxsam", href: "https://www.instagram.com/mayxsam/" },
+];
+
+function renderScheduleTitle(title: string): ReactNode {
+  let nodes: ReactNode[] = [title];
+  for (const { label, href } of SCHEDULE_INLINE_LINKS) {
+    nodes = nodes.flatMap((node, nodeIndex) => {
+      if (typeof node !== "string" || !node.includes(label)) return [node];
+      const parts = node.split(label);
+      const out: ReactNode[] = [];
+      parts.forEach((part, i) => {
+        if (part) out.push(part);
+        if (i < parts.length - 1) {
+          out.push(
+            <a
+              key={`${label}-${nodeIndex}-${i}`}
+              className="schedule-inline-link"
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {label}
+            </a>
+          );
+        }
+      });
+      return out;
+    });
+  }
+  return nodes;
+}
+
 export function InvitationShell({
   content,
   compact = false,
   children,
 }: Props) {
   const hasLinks = Boolean(content.wazeUrl || content.mapsUrl || content.bitUrl);
+
+  const programSection = (
+    <Reveal
+      as="section"
+      className="program-section"
+      id="details"
+      aria-labelledby="program-title"
+    >
+      <div className="program-layout">
+        <div className="program-panel">
+          <h2 id="program-title" className="section-title">
+            {content.programTitle}
+          </h2>
+
+          <ol className="program-schedule">
+            {content.programItems.map((item, index) => (
+              <li
+                key={`${item.time}-${item.title}-${index}`}
+                className="schedule-row"
+              >
+                <time
+                  className="schedule-time"
+                  dateTime={item.time || undefined}
+                >
+                  {formatProgramTimeLabel(item)}
+                </time>
+                <p className="schedule-title">{renderScheduleTitle(item.title)}</p>
+              </li>
+            ))}
+          </ol>
+
+          <div className="evening-notes">
+            <p className="evening-note soft">
+              <IconMic className="evening-note-icon" />
+              <span>{content.hosts}</span>
+            </p>
+            <p className="evening-note soft">
+              <IconGift className="evening-note-icon" />
+              <span>{content.giftNote}</span>
+            </p>
+          </div>
+
+          {hasLinks && (
+            <div className="links-block">
+              <p className="links-title">{content.linksTitle}</p>
+              <div className="quick-links">
+                {content.wazeUrl && (
+                  <a
+                    className="text-link"
+                    href={content.wazeUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <img
+                      className="link-logo"
+                      src="/logos/waze.png"
+                      alt=""
+                      width={18}
+                      height={18}
+                      decoding="async"
+                    />
+                    <span>{content.wazeLabel || "Waze"}</span>
+                  </a>
+                )}
+                {content.mapsUrl && (
+                  <a
+                    className="text-link"
+                    href={content.mapsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <img
+                      className="link-logo link-logo-maps"
+                      src="/logos/google-maps.png?v=3"
+                      alt=""
+                      width={18}
+                      height={18}
+                      decoding="async"
+                    />
+                    <span>{content.mapsLabel || "Maps"}</span>
+                  </a>
+                )}
+                {content.bitUrl && (
+                  <a
+                    className="text-link emphasis"
+                    href={content.bitUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <img
+                      className="link-logo"
+                      src="/logos/bit.png"
+                      alt=""
+                      width={18}
+                      height={18}
+                      decoding="async"
+                    />
+                    <span>{content.bitLabel || "ביט"}</span>
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="program-banner-wrap">
+          <div
+            className="program-banner"
+            role="img"
+            aria-label={content.place}
+          />
+        </div>
+      </div>
+    </Reveal>
+  );
 
   return (
     <main className="page">
@@ -43,140 +192,27 @@ export function InvitationShell({
             minutesLabel={content.countdownMinutes}
             secondsLabel={content.countdownSeconds}
           />
-          {!compact && (
-            <div className="hero-actions">
-              <SmoothScrollLink className="hero-cta" href="#rsvp">
-                {content.ctaLabel}
+          <div className="hero-actions">
+            <SmoothScrollLink className="hero-cta" href="#rsvp">
+              {content.ctaLabel}
+            </SmoothScrollLink>
+            <div className="hero-secondary">
+              <SmoothScrollLink className="hero-text-link" href="#details">
+                {content.detailsLinkLabel}
               </SmoothScrollLink>
-              <div className="hero-secondary">
-                <SmoothScrollLink className="hero-text-link" href="#details">
-                  {content.detailsLinkLabel}
-                </SmoothScrollLink>
-                <span className="hero-sep" aria-hidden="true">
-                  ·
-                </span>
-                <InviteViewer
-                  imageSrc={content.coverImage || "/invite.jpg"}
-                  label={content.viewInviteLabel}
-                />
-              </div>
+              <span className="hero-sep" aria-hidden="true">
+                ·
+              </span>
+              <InviteViewer
+                imageSrc={content.coverImage || "/invite.jpg"}
+                label={content.viewInviteLabel}
+              />
             </div>
-          )}
+          </div>
         </div>
       </section>
 
-      <Reveal
-        as="section"
-        className="program-section"
-        id="details"
-        aria-labelledby="program-title"
-      >
-        <div className="program-layout">
-          <div className="program-panel">
-            <h2 id="program-title" className="section-title">
-              {content.programTitle}
-            </h2>
-
-            <ol className="program-schedule">
-              {content.programItems.map((item, index) => (
-                <li
-                  key={`${item.time}-${item.title}-${index}`}
-                  className="schedule-row"
-                >
-                  <time
-                    className="schedule-time"
-                    dateTime={item.time || undefined}
-                  >
-                    {formatProgramTimeLabel(item)}
-                  </time>
-                  <p className="schedule-title">{item.title}</p>
-                </li>
-              ))}
-            </ol>
-
-            <div className="evening-notes">
-              <p className="evening-note soft">
-                <IconMic className="evening-note-icon" />
-                <span>{content.hosts}</span>
-              </p>
-              <p className="evening-note soft">
-                <IconGift className="evening-note-icon" />
-                <span>{content.giftNote}</span>
-              </p>
-            </div>
-
-            {hasLinks && (
-              <div className="links-block">
-                <p className="links-title">{content.linksTitle}</p>
-                <div className="quick-links">
-                  {content.wazeUrl && (
-                    <a
-                      className="text-link"
-                      href={content.wazeUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <img
-                        className="link-logo"
-                        src="/logos/waze.png"
-                        alt=""
-                        width={18}
-                        height={18}
-                        decoding="async"
-                      />
-                      <span>{content.wazeLabel || "Waze"}</span>
-                    </a>
-                  )}
-                  {content.mapsUrl && (
-                    <a
-                      className="text-link"
-                      href={content.mapsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <img
-                        className="link-logo link-logo-maps"
-                        src="/logos/google-maps.png?v=3"
-                        alt=""
-                        width={18}
-                        height={18}
-                        decoding="async"
-                      />
-                      <span>{content.mapsLabel || "Maps"}</span>
-                    </a>
-                  )}
-                  {content.bitUrl && (
-                    <a
-                      className="text-link emphasis"
-                      href={content.bitUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <img
-                        className="link-logo"
-                        src="/logos/bit.png"
-                        alt=""
-                        width={18}
-                        height={18}
-                        decoding="async"
-                      />
-                      <span>{content.bitLabel || "ביט"}</span>
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="program-banner-wrap">
-            <div
-              className="program-banner"
-              role="img"
-              aria-label={content.place}
-            />
-          </div>
-        </div>
-      </Reveal>
-
+      {programSection}
       {children}
 
       <Reveal as="footer" className="site-footer">

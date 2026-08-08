@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { InvitationShell } from "@/components/InvitationShell";
 import { InvitePageClient } from "@/components/InvitePageClient";
 import { Reveal } from "@/components/Reveal";
@@ -39,11 +40,13 @@ export default async function InvitePage({ params }: Props) {
               </p>
             </div>
           ) : (
-            <InvitePageClient
-              token={token}
-              invite={invite}
-              content={content}
-            />
+            <Suspense fallback={<p className="rsvp-lead">{content.loadingLabel}</p>}>
+              <InvitePageClient
+                token={token}
+                invite={invite}
+                content={content}
+              />
+            </Suspense>
           )}
         </div>
       </Reveal>

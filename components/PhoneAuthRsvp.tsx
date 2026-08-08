@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { OtpCodeInput } from "@/components/OtpCodeInput";
 import { RsvpChoiceFields } from "@/components/RsvpChoiceFields";
+import { invitePath } from "@/lib/invite-token";
 import { applyTemplate, type SiteContent } from "@/lib/site-content-defaults";
 import { formatPhoneDisplay, phoneValidationError } from "@/lib/phone";
 import {
@@ -24,6 +26,7 @@ type Guest = {
   /** On the list (e.g. manual add) but has not confirmed/declined yet */
   pending_rsvp?: boolean;
   is_new?: boolean;
+  invite_token?: string | null;
 };
 
 type Step = "phone" | "code" | "confirm";
@@ -33,6 +36,7 @@ type Props = {
 };
 
 export function PhoneAuthRsvp({ content }: Props) {
+  const router = useRouter();
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -48,8 +52,22 @@ export function PhoneAuthRsvp({ content }: Props) {
   const [lastOtpPhone, setLastOtpPhone] = useState<string | null>(null);
   const [otpCooldownUntil, setOtpCooldownUntil] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+  const verifyingOtpRef = useRef(false);
+
+  function goToPersonalInvite(token: string, thanks?: ThankYouKind) {
+    setRedirecting(true);
+    const path = invitePath(token);
+    router.replace(thanks ? `${path}?thanks=${thanks}` : path);
+  }
 
   function applyGuest(next: Guest) {
+    // Existing guests open the same personal invite page as the WhatsApp link.
+    if (next.invite_token && !next.is_new) {
+      goToPersonalInvite(next.invite_token);
+      return;
+    }
+
     setGuest(next);
     setFullName(next.full_name || "");
     setGuestCount(Math.max(next.guest_count || 1, 1));
@@ -60,7 +78,6 @@ export function PhoneAuthRsvp({ content }: Props) {
         ? next.status
         : "confirmed"
     );
-    // Summary + "עדכון סטטוס" only after a prior confirmation.
     setEditing(!next.already_final);
     setStep("confirm");
   }
@@ -120,8 +137,10 @@ export function PhoneAuthRsvp({ content }: Props) {
     }
   }
 
-  async function verifyOtp(e: React.FormEvent) {
-    e.preventDefault();
+  async function verifyOtp(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (code.length < 6 || verifyingOtpRef.current || busy) return;
+    verifyingOtpRef.current = true;
     setError(null);
     setBusy(true);
     try {
@@ -133,15 +152,23 @@ export function PhoneAuthRsvp({ content }: Props) {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "אימות נכשל");
+        setCode("");
         return;
       }
       applyGuest(data.guest);
     } catch {
       setError("בעיית רשת");
     } finally {
+      verifyingOtpRef.current = false;
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (step !== "code" || code.length < 6) return;
+    void verifyOtp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-submit once code is complete
+  }, [code, step]);
 
   async function submitRsvp(e: React.FormEvent) {
     e.preventDefault();
@@ -173,16 +200,24 @@ export function PhoneAuthRsvp({ content }: Props) {
       }
       if (data.unchanged) {
         setEditing(false);
+        if (data.invite_token || guest.invite_token) {
+          goToPersonalInvite(
+            String(data.invite_token || guest.invite_token)
+          );
+        }
         return;
       }
-      setDoneKind(
-        resolveThankYouKind({
-          previousStatus: guest.status,
-          previousGuestCount: guest.guest_count,
-          nextStatus: status,
-          nextGuestCount: guestCount,
-        })
-      );
+      const kind = resolveThankYouKind({
+        previousStatus: guest.status,
+        previousGuestCount: guest.guest_count,
+        nextStatus: status,
+        nextGuestCount: guestCount,
+      });
+      if (data.invite_token) {
+        goToPersonalInvite(String(data.invite_token), kind);
+        return;
+      }
+      setDoneKind(kind);
       setDone(true);
     } catch {
       setError("בעיית רשת");
@@ -201,7 +236,7 @@ export function PhoneAuthRsvp({ content }: Props) {
     setDoneKind(null);
   }
 
-  if (loading) {
+  if (loading || redirecting) {
     return <p className="rsvp-lead">{content.loadingLabel}</p>;
   }
 
@@ -221,6 +256,9 @@ export function PhoneAuthRsvp({ content }: Props) {
           }}
         >
           {content.updateStatusLabel}
+        </button>
+        <button type="button" className="text-link-btn" onClick={logout}>
+          {content.logoutLabel}
         </button>
       </div>
     );
@@ -264,7 +302,11 @@ export function PhoneAuthRsvp({ content }: Props) {
 
   if (step === "code") {
     return (
-      <form className="rsvp-form otp-step animate-fade-up" onSubmit={verifyOtp}>
+      <form
+        className="rsvp-form otp-step animate-fade-up"
+        onSubmit={verifyOtp}
+        autoComplete="one-time-code"
+      >
         <p className="otp-kicker">{content.codeLabel}</p>
         <p className="otp-lead">{content.otpSentLead}</p>
         <p className="otp-phone" dir="ltr">
@@ -285,16 +327,15 @@ export function PhoneAuthRsvp({ content }: Props) {
         )}
 
         <div className="otp-actions">
-          <button
-            type="submit"
-            className="submit-btn"
-            disabled={busy || code.length < 6}
-          >
-            {busy ? "…" : content.verifyOtpLabel}
-          </button>
+          {busy ? (
+            <p className="otp-lead" aria-live="polite">
+              {content.loadingLabel}
+            </p>
+          ) : null}
           <button
             type="button"
             className="text-link-btn otp-change-phone"
+            disabled={busy}
             onClick={() => {
               setStep("phone");
               setCode("");
@@ -427,7 +468,7 @@ export function PhoneAuthRsvp({ content }: Props) {
           {content.cancelUpdateLabel}
         </button>
       ) : (
-        <button type="button" className="link-btn ghost" onClick={logout}>
+        <button type="button" className="text-link-btn" onClick={logout}>
           {content.logoutLabel}
         </button>
       )}

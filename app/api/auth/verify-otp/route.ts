@@ -81,6 +81,7 @@ export async function POST(request: Request) {
           wants_video_blessing: guest.wants_video_blessing,
           wants_to_speak: guest.wants_to_speak,
           excitement: guest.excitement,
+          invite_token: guest.invite_token,
           already_final: Boolean(guest.final_confirmed_at) && !pendingRsvp,
           pending_rsvp: pendingRsvp,
           is_new: false,

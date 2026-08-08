@@ -1,6 +1,7 @@
 import { formatPhoneDisplay } from "@/lib/phone";
 import {
   organizerNotifyPhones,
+  sendWhatsAppReplyButtonsWithFallback,
   sendWhatsAppText,
 } from "@/lib/green-api";
 import {
@@ -45,18 +46,60 @@ type GreenWebhookBody = {
     typeMessage?: string;
     textMessageData?: { textMessage?: string };
     extendedTextMessageData?: { text?: string };
+    buttonsResponseMessage?: {
+      selectedButtonId?: string;
+      selectedButtonText?: string;
+    };
+    templateButtonReplyMessage?: {
+      selectedId?: string;
+      selectedDisplayText?: string;
+    };
+    interactiveButtonsResponse?: {
+      selectedId?: string;
+      selectedDisplayText?: string;
+    };
   };
 };
 
-function extractText(body: GreenWebhookBody): string | null {
+type OrganizerInput = {
+  text: string;
+  buttonId: string | null;
+};
+
+function extractOrganizerInput(body: GreenWebhookBody): OrganizerInput | null {
   const data = body.messageData;
   if (!data) return null;
+
   if (data.typeMessage === "textMessage") {
-    return data.textMessageData?.textMessage?.trim() || null;
+    const text = data.textMessageData?.textMessage?.trim() || "";
+    return text ? { text, buttonId: null } : null;
   }
+
   if (data.typeMessage === "extendedTextMessage") {
-    return data.extendedTextMessageData?.text?.trim() || null;
+    const text = data.extendedTextMessageData?.text?.trim() || "";
+    return text ? { text, buttonId: null } : null;
   }
+
+  if (data.typeMessage === "buttonsResponseMessage") {
+    const id = data.buttonsResponseMessage?.selectedButtonId?.trim() || null;
+    const label =
+      data.buttonsResponseMessage?.selectedButtonText?.trim() || "";
+    if (!id && !label) return null;
+    return { text: label || id || "", buttonId: id };
+  }
+
+  if (
+    data.typeMessage === "interactiveButtonsResponse" ||
+    data.typeMessage === "templateButtonReplyMessage"
+  ) {
+    const payload =
+      data.interactiveButtonsResponse || data.templateButtonReplyMessage;
+    const id = payload?.selectedId?.trim() || null;
+    const label = payload?.selectedDisplayText?.trim() || "";
+    if (!id && !label) return null;
+    return { text: label || id || "", buttonId: id };
+  }
+
   return null;
 }
 
@@ -89,7 +132,7 @@ function webhookAuthorized(request: Request): boolean {
 /**
  * Green API incoming webhook for organizers:
  * - name + phone (2 lines) → add guest (unchanged)
- * - עזרה / תפריט → info menus (no messaging guests)
+ * - עזרה / תפריט / reply buttons → info menus (no messaging guests)
  */
 export async function POST(request: Request) {
   if (!webhookAuthorized(request)) {
@@ -107,11 +150,14 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, ignored: body.typeWebhook || "unknown" });
   }
 
-  const text = extractText(body);
+  const input = extractOrganizerInput(body);
   const senderChatId = body.senderData?.sender || body.senderData?.chatId || "";
-  if (!text || !senderChatId) {
+  if (!input || !senderChatId) {
     return Response.json({ ok: true, ignored: "no_text" });
   }
+
+  const text = input.text;
+  const buttonId = input.buttonId;
 
   const organizers = organizerNotifyPhones();
   if (!isOrganizerSender(senderChatId, organizers)) {
@@ -127,8 +173,11 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, ignored: "no_reply_to" });
   }
 
+  // Button taps are never add-guest / rename free-text.
+  const fromButton = Boolean(buttonId);
+
   // 1) Pending rename yes/no (only when there is a pending ask).
-  if (isRenameConfirm(text) || isRenameDecline(text)) {
+  if (!fromButton && (isRenameConfirm(text) || isRenameDecline(text))) {
     const pending = await getPendingRename(replyTo);
     if (pending) {
       if (isRenameDecline(text)) {
@@ -172,109 +221,118 @@ export async function POST(request: Request) {
   }
 
   // 2) Manual add template always wins (do not break existing flow).
-  const parsed = parseAddGuestMessage(text);
-  if (parsed) {
-    const conflict = await findGuestAddConflict({
-      full_name: parsed.fullName,
-      phone: parsed.phone,
-      phoneOnly: true,
-    });
-
-    if (conflict) {
-      const phoneLabel = formatPhoneDisplay(conflict.existing.phone);
-      const sameName =
-        normalizeGuestName(conflict.existing.full_name) ===
-        normalizeGuestName(parsed.fullName);
-
-      if (sameName) {
-        await clearPendingRename(replyTo);
-        await sendWhatsAppText(
-          replyTo,
-          buildOrganizerGuestExistsSameName({
-            fullName: conflict.existing.full_name,
-            phone: phoneLabel,
-          })
-        );
-      } else {
-        await setPendingRename({
-          organizerPhone: replyTo,
-          guestPhone: conflict.existing.phone,
-          currentName: conflict.existing.full_name,
-          newName: parsed.fullName,
-        });
-        await sendWhatsAppText(
-          replyTo,
-          buildOrganizerGuestExistsAskRename({
-            currentName: conflict.existing.full_name,
-            newName: parsed.fullName,
-            phone: phoneLabel,
-          })
-        );
-      }
-
-      return Response.json({
-        ok: true,
-        added: false,
-        error: conflict.code,
-        askRename: !sameName,
-        existing: {
-          id: conflict.existing.id,
-          full_name: conflict.existing.full_name,
-          phone: conflict.existing.phone,
-          status: conflict.existing.status,
-        },
-      });
-    }
-
-    try {
-      const guest = await createImportedGuest({
+  if (!fromButton) {
+    const parsed = parseAddGuestMessage(text);
+    if (parsed) {
+      const conflict = await findGuestAddConflict({
         full_name: parsed.fullName,
         phone: parsed.phone,
         phoneOnly: true,
       });
 
-      await clearPendingRename(replyTo);
-      await sendWhatsAppText(
-        replyTo,
-        buildOrganizerAddGuestSuccess(guest.full_name)
-      );
+      if (conflict) {
+        const phoneLabel = formatPhoneDisplay(conflict.existing.phone);
+        const sameName =
+          normalizeGuestName(conflict.existing.full_name) ===
+          normalizeGuestName(parsed.fullName);
 
-      return Response.json({
-        ok: true,
-        added: true,
-        guest: {
-          id: guest.id,
-          phone: guest.phone,
-          full_name: guest.full_name,
-        },
-      });
-    } catch (err) {
-      const code = err instanceof Error ? err.message : "UNKNOWN";
-      await sendWhatsAppText(
-        replyTo,
-        buildOrganizerAddGuestFailure(conflictMessage(code))
-      );
-      console.error("WhatsApp add guest failed", err);
-      return Response.json({ ok: true, added: false, error: code });
+        if (sameName) {
+          await clearPendingRename(replyTo);
+          await sendWhatsAppText(
+            replyTo,
+            buildOrganizerGuestExistsSameName({
+              fullName: conflict.existing.full_name,
+              phone: phoneLabel,
+            })
+          );
+        } else {
+          await setPendingRename({
+            organizerPhone: replyTo,
+            guestPhone: conflict.existing.phone,
+            currentName: conflict.existing.full_name,
+            newName: parsed.fullName,
+          });
+          await sendWhatsAppText(
+            replyTo,
+            buildOrganizerGuestExistsAskRename({
+              currentName: conflict.existing.full_name,
+              newName: parsed.fullName,
+              phone: phoneLabel,
+            })
+          );
+        }
+
+        return Response.json({
+          ok: true,
+          added: false,
+          error: conflict.code,
+          askRename: !sameName,
+          existing: {
+            id: conflict.existing.id,
+            full_name: conflict.existing.full_name,
+            phone: conflict.existing.phone,
+            status: conflict.existing.status,
+          },
+        });
+      }
+
+      try {
+        const guest = await createImportedGuest({
+          full_name: parsed.fullName,
+          phone: parsed.phone,
+          phoneOnly: true,
+        });
+
+        await clearPendingRename(replyTo);
+        await sendWhatsAppText(
+          replyTo,
+          buildOrganizerAddGuestSuccess(guest.full_name)
+        );
+
+        return Response.json({
+          ok: true,
+          added: true,
+          guest: {
+            id: guest.id,
+            phone: guest.phone,
+            full_name: guest.full_name,
+          },
+        });
+      } catch (err) {
+        const code = err instanceof Error ? err.message : "UNKNOWN";
+        await sendWhatsAppText(
+          replyTo,
+          buildOrganizerAddGuestFailure(conflictMessage(code))
+        );
+        console.error("WhatsApp add guest failed", err);
+        return Response.json({ ok: true, added: false, error: code });
+      }
     }
   }
 
-  // 3) Organizer info menu (עזרה / numbers / search).
+  // 3) Organizer info menu (עזרה / buttons / numbers / search).
   const menu = await handleOrganizerMenu({
     organizerPhone: replyTo,
     text,
+    buttonId,
   });
   if (menu) {
-    await sendWhatsAppText(replyTo, menu.message);
+    await sendWhatsAppReplyButtonsWithFallback(
+      replyTo,
+      menu.message,
+      menu.buttons,
+      menu.footer
+    );
     return Response.json({
       ok: true,
       menu: true,
       exited: Boolean(menu.exited),
+      buttons: Boolean(menu.buttons?.length),
     });
   }
 
   // 4) Almost-add template with bad values.
-  if (looksLikeAddGuestTemplate(text)) {
+  if (!fromButton && looksLikeAddGuestTemplate(text)) {
     await sendWhatsAppText(
       replyTo,
       buildOrganizerAddGuestFailure(

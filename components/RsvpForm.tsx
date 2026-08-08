@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { RsvpChoiceFields } from "@/components/RsvpChoiceFields";
+import { SmoothScrollLink } from "@/components/SmoothScrollLink";
 import { applyTemplate, type SiteContent } from "@/lib/site-content-defaults";
 import {
   resolveThankYouKind,
@@ -19,6 +21,7 @@ type Props = {
 };
 
 export function RsvpForm({ token, invite, content }: Props) {
+  const router = useRouter();
   const initialStatus: Status =
     invite.status === "declined" ||
     invite.status === "maybe" ||
@@ -35,6 +38,22 @@ export function RsvpForm({ token, invite, content }: Props) {
   const [done, setDone] = useState(false);
   const [doneKind, setDoneKind] = useState<ThankYouKind | null>(null);
   const [editing, setEditing] = useState(!invite.already_final);
+  const [canLogout, setCanLogout] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((data) => {
+        setCanLogout(Boolean(data.guest));
+      })
+      .catch(() => setCanLogout(false));
+  }, []);
+
+  async function logout() {
+    await fetch("/api/auth/me", { method: "DELETE" });
+    setCanLogout(false);
+    router.replace("/#rsvp");
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -81,17 +100,27 @@ export function RsvpForm({ token, invite, content }: Props) {
         <p className="success-body">
           {thankYouMessage(doneKind, content)}
         </p>
-        <button
-          type="button"
-          className="text-link-btn"
-          onClick={() => {
-            setDone(false);
-            setDoneKind(null);
-            setEditing(true);
-          }}
-        >
-          {content.updateStatusLabel}
-        </button>
+        <div className="rsvp-summary-actions">
+          <button
+            type="button"
+            className="submit-btn"
+            onClick={() => {
+              setDone(false);
+              setDoneKind(null);
+              setEditing(true);
+            }}
+          >
+            {content.updateStatusLabel}
+          </button>
+          <SmoothScrollLink className="submit-btn ghost" href="#details">
+            {content.viewProgramLabel}
+          </SmoothScrollLink>
+        </div>
+        {canLogout && (
+          <button type="button" className="text-link-btn" onClick={logout}>
+            {content.logoutLabel}
+          </button>
+        )}
       </div>
     );
   }
@@ -124,13 +153,23 @@ export function RsvpForm({ token, invite, content }: Props) {
             </p>
           )}
         </div>
-        <button
-          type="button"
-          className="submit-btn"
-          onClick={() => setEditing(true)}
-        >
-          {content.updateStatusLabel}
-        </button>
+        <div className="rsvp-summary-actions">
+          <button
+            type="button"
+            className="submit-btn"
+            onClick={() => setEditing(true)}
+          >
+            {content.updateStatusLabel}
+          </button>
+          <SmoothScrollLink className="submit-btn ghost" href="#details">
+            {content.viewProgramLabel}
+          </SmoothScrollLink>
+        </div>
+        {canLogout && (
+          <button type="button" className="text-link-btn" onClick={logout}>
+            {content.logoutLabel}
+          </button>
+        )}
       </div>
     );
   }
@@ -164,7 +203,7 @@ export function RsvpForm({ token, invite, content }: Props) {
       <button type="submit" className="submit-btn" disabled={submitting}>
         {submitting ? "…" : content.submitRsvpLabel}
       </button>
-      {invite.already_final && (
+      {invite.already_final ? (
         <button
           type="button"
           className="text-link-btn"
@@ -177,7 +216,11 @@ export function RsvpForm({ token, invite, content }: Props) {
         >
           {content.cancelUpdateLabel}
         </button>
-      )}
+      ) : canLogout ? (
+        <button type="button" className="text-link-btn" onClick={logout}>
+          {content.logoutLabel}
+        </button>
+      ) : null}
     </form>
   );
 }
