@@ -15,28 +15,48 @@ export function jokeAuthorizedPhones(): string[] {
   return [...new Set(phones)];
 }
 
-export function isJokeRequest(
+export function isJokePrimaryRequest(
+  text: string,
+  buttonId?: string | null
+): boolean {
+  // "עוד" uses buttonId joke — that is a "more" request, not a primary wake word.
+  if (buttonId && /^(joke|joke-more)$/i.test(buttonId.trim())) {
+    const label = text.trim();
+    // Primary only if the button itself says בדיחה / joke (not עוד).
+    if (label && /^(בדיחה|joke|jokes|dad\s*joke)[!?.]*$/i.test(label)) {
+      return true;
+    }
+    return false;
+  }
+  const t = text.trim();
+  if (!t) return false;
+  return /^(בדיחה|joke|jokes|dad\s*joke)[!?.]*$/i.test(t);
+}
+
+/** "עוד" after at least one joke was already sent (button or plain text). */
+export function isJokeMoreRequest(
   text: string,
   buttonId?: string | null,
   opts?: { allowMoreText?: boolean }
 ): boolean {
-  if (buttonId && /^(joke|joke-more)$/i.test(buttonId.trim())) return true;
+  if (buttonId && /^(joke|joke-more)$/i.test(buttonId.trim())) {
+    const label = text.trim();
+    // Treat unlabeled / "עוד" button taps as more; "בדיחה" button is primary.
+    if (label && /^(בדיחה|joke|jokes|dad\s*joke)[!?.]*$/i.test(label)) {
+      return false;
+    }
+    return true;
+  }
   const t = text.trim();
   if (!t) return false;
-  if (/^(בדיחה|joke|jokes|dad\s*joke)[!?.]*$/i.test(t)) return true;
-  // Plain "עוד" only for joke-only numbers — organizers use "עוד" in the menu.
-  if (opts?.allowMoreText && /^עוד[!?.]*$/i.test(t)) return true;
-  return false;
+  if (!opts?.allowMoreText) return false;
+  return /^עוד[!?.]*$/i.test(t);
 }
 
 export const JOKE_MORE_BUTTON = {
   buttonId: "joke",
   buttonText: "עוד",
 } as const;
-
-export const JOKE_ONLY_HINT =
-  "יש לך גישה רק לבדיחות.\nשלחו: בדיחה";
-
 /** Short Hebrew backups when every public API is down. */
 const HEBREW_FALLBACKS = [
   "למה המחשב הלך לרופא?\nכי היה לו וירוס.",

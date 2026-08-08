@@ -20,12 +20,13 @@ import {
 import { normalizeGuestName } from "@/lib/types";
 import {
   fetchShortJoke,
-  isJokeRequest,
+  isJokeMoreRequest,
+  isJokePrimaryRequest,
   jokeAuthorizedPhones,
   JOKE_MORE_BUTTON,
-  JOKE_ONLY_HINT,
   resolveAllowlistedPhone,
 } from "@/lib/wa-joke";
+import { hasJokeSession, markJokeSession } from "@/lib/wa-joke-session";
 import { handleOrganizerMenu } from "@/lib/wa-organizer-menu";
 import {
   looksLikeAddGuestTemplate,
@@ -200,23 +201,31 @@ export async function POST(request: Request) {
   const isOrganizer = Boolean(organizerPhone);
   const replyTo = jokePhone;
 
-  // Jokes: organizers + joke-only allowlist. Joke-only never reaches menus below.
-  if (isJokeRequest(text, buttonId, { allowMoreText: !isOrganizer })) {
+  // Jokes: wake only on "בדיחה". "עוד" only after at least one joke was sent.
+  const wantsPrimary = isJokePrimaryRequest(text, buttonId);
+  const wantsMore =
+    !wantsPrimary &&
+    isJokeMoreRequest(text, buttonId, { allowMoreText: !isOrganizer }) &&
+    (await hasJokeSession(replyTo));
+
+  if (wantsPrimary || wantsMore) {
     const joke = await fetchShortJoke();
     await sendOrganizerMenuMessage(replyTo, {
       body: joke,
       buttons: [JOKE_MORE_BUTTON],
     });
+    await markJokeSession(replyTo);
     return Response.json({
       ok: true,
       joke: true,
+      more: wantsMore,
       organizer: isOrganizer,
     });
   }
 
+  // Joke-only numbers: silent ignore unless they wrote בדיחה / valid עוד.
   if (!isOrganizer) {
-    await sendWhatsAppText(replyTo, JOKE_ONLY_HINT);
-    return Response.json({ ok: true, joke_only: true });
+    return Response.json({ ok: true, ignored: "joke_only_silent" });
   }
 
   // Button taps are never add-guest / rename free-text.
