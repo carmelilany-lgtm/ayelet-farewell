@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { RsvpChoiceFields } from "@/components/RsvpChoiceFields";
 import { SmoothScrollLink } from "@/components/SmoothScrollLink";
@@ -18,16 +18,9 @@ type Props = {
   token: string;
   invite: PublicInviteView;
   content: SiteContent;
-  /** From server cookie or parent session check — avoids missing logout on first paint. */
-  hasGuestSession?: boolean;
 };
 
-export function RsvpForm({
-  token,
-  invite,
-  content,
-  hasGuestSession = false,
-}: Props) {
+export function RsvpForm({ token, invite, content }: Props) {
   const router = useRouter();
   const initialStatus: Status =
     invite.status === "declined" ||
@@ -45,24 +38,9 @@ export function RsvpForm({
   const [done, setDone] = useState(false);
   const [doneKind, setDoneKind] = useState<ThankYouKind | null>(null);
   const [editing, setEditing] = useState(!invite.already_final);
-  const [canLogout, setCanLogout] = useState(hasGuestSession);
-
-  useEffect(() => {
-    if (hasGuestSession) {
-      setCanLogout(true);
-      return;
-    }
-    fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((data) => {
-        setCanLogout(Boolean(data.guest));
-      })
-      .catch(() => setCanLogout(false));
-  }, [hasGuestSession]);
 
   async function logout() {
     await fetch("/api/auth/me", { method: "DELETE" });
-    setCanLogout(false);
     router.replace("/#rsvp");
   }
 
@@ -85,8 +63,6 @@ export function RsvpForm({
         setError(data.error || "שגיאה בשליחה");
         return;
       }
-      // Token RSVP now sets a guest session cookie — enable logout immediately.
-      setCanLogout(true);
       if (data.unchanged) {
         setEditing(false);
         return;
@@ -107,11 +83,11 @@ export function RsvpForm({
     }
   }
 
-  const logoutBtn = canLogout ? (
+  const logoutBtn = (
     <button type="button" className="text-link-btn" onClick={logout}>
       {content.logoutLabel}
     </button>
-  ) : null;
+  );
 
   if (done && doneKind) {
     return (
