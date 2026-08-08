@@ -1,6 +1,11 @@
 import { z } from "zod";
-import { parseGuestCookie } from "@/lib/guest-session";
+import {
+  createGuestSessionToken,
+  guestSessionCookie,
+  parseGuestCookie,
+} from "@/lib/guest-session";
 import { notifyOrganizersWhatsApp, sendWhatsAppTextWithRetry } from "@/lib/green-api";
+import { normalizePhone } from "@/lib/phone";
 import {
   buildGuestThankYouWhatsApp,
   buildOrganizerConfirmMessage,
@@ -46,6 +51,21 @@ function rateLimit(ip: string): boolean {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Ensure guest cookie matches the RSVP phone so «התנתקות» works on the invite page. */
+function sessionHeaders(
+  phone: string | null | undefined,
+  sessionPhone: string | null
+): Headers | undefined {
+  const normalized = normalizePhone(phone);
+  if (!normalized || sessionPhone === normalized) return undefined;
+  const headers = new Headers();
+  headers.set(
+    "Set-Cookie",
+    guestSessionCookie(createGuestSessionToken(normalized))
+  );
+  return headers;
 }
 
 async function notifyOrganizer(rsvp: Rsvp) {
@@ -179,12 +199,16 @@ export async function POST(request: Request) {
           nextGuestCount: count,
         })
       ) {
-        return Response.json({
-          ok: true,
-          unchanged: true,
-          invite: publicInvite(before),
-          invite_token: before.invite_token,
-        });
+        const headers = sessionHeaders(before.phone, sessionPhone);
+        return Response.json(
+          {
+            ok: true,
+            unchanged: true,
+            invite: publicInvite(before),
+            invite_token: before.invite_token,
+          },
+          headers ? { headers } : undefined
+        );
       }
 
       const invite = await updateRsvpByToken(parsed.data.token, {
@@ -294,12 +318,16 @@ export async function POST(request: Request) {
       }
     }
 
-    return Response.json({
-      ok: true,
-      unchanged: false,
-      invite: full ? publicInvite(full) : null,
-      invite_token: full?.invite_token ?? null,
-    });
+    const headers = sessionHeaders(full?.phone, sessionPhone);
+    return Response.json(
+      {
+        ok: true,
+        unchanged: false,
+        invite: full ? publicInvite(full) : null,
+        invite_token: full?.invite_token ?? null,
+      },
+      headers ? { headers } : undefined
+    );
   } catch (err) {
     console.error("RSVP update failed", err);
     return Response.json({ error: "שגיאה בשמירה. נסו שוב." }, { status: 500 });

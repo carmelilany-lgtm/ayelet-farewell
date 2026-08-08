@@ -22,10 +22,12 @@ export function InvitePageClient({
   token,
   invite,
   content,
+  hasGuestSession = false,
 }: {
   token: string;
   invite: PublicInviteView;
   content: SiteContent;
+  hasGuestSession?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -40,16 +42,26 @@ export function InvitePageClient({
   const [thanksKind, setThanksKind] = useState<ThankYouKind | null>(
     initialThanks
   );
-  const [canLogout, setCanLogout] = useState(false);
+  const [canLogout, setCanLogout] = useState(hasGuestSession);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#rsvp") return;
+    document.getElementById("rsvp")?.scrollIntoView({ block: "start" });
+  }, []);
+
+  useEffect(() => {
+    if (hasGuestSession) {
+      setCanLogout(true);
+      return;
+    }
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((data) => {
         setCanLogout(Boolean(data.guest));
       })
       .catch(() => setCanLogout(false));
-  }, []);
+  }, [hasGuestSession]);
 
   async function logout() {
     await fetch("/api/auth/me", { method: "DELETE" });
@@ -84,5 +96,12 @@ export function InvitePageClient({
     );
   }
 
-  return <RsvpForm token={token} invite={invite} content={content} />;
+  return (
+    <RsvpForm
+      token={token}
+      invite={invite}
+      content={content}
+      hasGuestSession={canLogout}
+    />
+  );
 }

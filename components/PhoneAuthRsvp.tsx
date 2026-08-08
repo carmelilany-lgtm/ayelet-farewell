@@ -58,7 +58,8 @@ export function PhoneAuthRsvp({ content }: Props) {
   function goToPersonalInvite(token: string, thanks?: ThankYouKind) {
     setRedirecting(true);
     const path = invitePath(token);
-    router.replace(thanks ? `${path}?thanks=${thanks}` : path);
+    // Land on #rsvp so logout / status actions are visible (page has hero + program above).
+    router.replace(thanks ? `${path}?thanks=${thanks}#rsvp` : `${path}#rsvp`);
   }
 
   function applyGuest(next: Guest) {
@@ -467,11 +468,10 @@ export function PhoneAuthRsvp({ content }: Props) {
         >
           {content.cancelUpdateLabel}
         </button>
-      ) : (
-        <button type="button" className="text-link-btn" onClick={logout}>
-          {content.logoutLabel}
-        </button>
-      )}
+      ) : null}
+      <button type="button" className="text-link-btn" onClick={logout}>
+        {content.logoutLabel}
+      </button>
     </form>
   );
 }

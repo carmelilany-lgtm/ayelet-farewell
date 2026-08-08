@@ -18,9 +18,16 @@ type Props = {
   token: string;
   invite: PublicInviteView;
   content: SiteContent;
+  /** From server cookie or parent session check — avoids missing logout on first paint. */
+  hasGuestSession?: boolean;
 };
 
-export function RsvpForm({ token, invite, content }: Props) {
+export function RsvpForm({
+  token,
+  invite,
+  content,
+  hasGuestSession = false,
+}: Props) {
   const router = useRouter();
   const initialStatus: Status =
     invite.status === "declined" ||
@@ -38,16 +45,20 @@ export function RsvpForm({ token, invite, content }: Props) {
   const [done, setDone] = useState(false);
   const [doneKind, setDoneKind] = useState<ThankYouKind | null>(null);
   const [editing, setEditing] = useState(!invite.already_final);
-  const [canLogout, setCanLogout] = useState(false);
+  const [canLogout, setCanLogout] = useState(hasGuestSession);
 
   useEffect(() => {
+    if (hasGuestSession) {
+      setCanLogout(true);
+      return;
+    }
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((data) => {
         setCanLogout(Boolean(data.guest));
       })
       .catch(() => setCanLogout(false));
-  }, []);
+  }, [hasGuestSession]);
 
   async function logout() {
     await fetch("/api/auth/me", { method: "DELETE" });
@@ -74,6 +85,8 @@ export function RsvpForm({ token, invite, content }: Props) {
         setError(data.error || "שגיאה בשליחה");
         return;
       }
+      // Token RSVP now sets a guest session cookie — enable logout immediately.
+      setCanLogout(true);
       if (data.unchanged) {
         setEditing(false);
         return;
@@ -93,6 +106,12 @@ export function RsvpForm({ token, invite, content }: Props) {
       setSubmitting(false);
     }
   }
+
+  const logoutBtn = canLogout ? (
+    <button type="button" className="text-link-btn" onClick={logout}>
+      {content.logoutLabel}
+    </button>
+  ) : null;
 
   if (done && doneKind) {
     return (
@@ -116,11 +135,7 @@ export function RsvpForm({ token, invite, content }: Props) {
             {content.viewProgramLabel}
           </SmoothScrollLink>
         </div>
-        {canLogout && (
-          <button type="button" className="text-link-btn" onClick={logout}>
-            {content.logoutLabel}
-          </button>
-        )}
+        {logoutBtn}
       </div>
     );
   }
@@ -165,11 +180,7 @@ export function RsvpForm({ token, invite, content }: Props) {
             {content.viewProgramLabel}
           </SmoothScrollLink>
         </div>
-        {canLogout && (
-          <button type="button" className="text-link-btn" onClick={logout}>
-            {content.logoutLabel}
-          </button>
-        )}
+        {logoutBtn}
       </div>
     );
   }
@@ -216,11 +227,8 @@ export function RsvpForm({ token, invite, content }: Props) {
         >
           {content.cancelUpdateLabel}
         </button>
-      ) : canLogout ? (
-        <button type="button" className="text-link-btn" onClick={logout}>
-          {content.logoutLabel}
-        </button>
       ) : null}
+      {logoutBtn}
     </form>
   );
 }

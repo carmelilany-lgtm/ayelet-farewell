@@ -64,6 +64,11 @@ export type SiteContent = {
   otpMessageTemplate: string;
   /** Full reminder WhatsApp; use {name} {dateTime} {place} {siteUrl} {personalLink} */
   reminderTemplate: string;
+  /**
+   * WhatsApp invite for admin-added guests still waiting.
+   * Same placeholders as reminderTemplate.
+   */
+  reminderTemplateManual: string;
   /** @deprecated Kept for migrating old CMS data into reminderTemplate */
   reminderIntro: string;
   /** @deprecated */
@@ -340,6 +345,18 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
 
 מחכות לראותכם
 אורטל וכרמל`,
+  reminderTemplateManual: `שלום {name},
+
+מזמינים אותך למסיבת הפרידה של איילת
+
+📅 {dateTime}
+📍 {place}
+
+זה הקישור האישי שלך לכניסה למערכת:
+{personalLink}
+
+מחכות לראותכם
+אורטל וכרמל`,
   reminderIntro:
     "זוהי תזכורת לעדכון סטטוס הגעה לקראת מסיבת הפרידה של איילת",
   reminderSiteLabel: "לפרטים נוספים",
@@ -425,6 +442,10 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
     /זה קישור אישי אליכם — (?:לעדכון סטטוס ההגעה|לכניסה למערכת):/g,
     "זה הקישור האישי שלך לכניסה למערכת:"
   );
+
+  if (!next.reminderTemplateManual?.trim()) {
+    next.reminderTemplateManual = DEFAULT_SITE_CONTENT.reminderTemplateManual;
+  }
 
   if (next.submitRsvpLabel.trim() === "שליחת אישור הגעה") {
     next.submitRsvpLabel = DEFAULT_SITE_CONTENT.submitRsvpLabel;

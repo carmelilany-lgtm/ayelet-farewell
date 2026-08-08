@@ -1,7 +1,12 @@
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { InvitationShell } from "@/components/InvitationShell";
 import { InvitePageClient } from "@/components/InvitePageClient";
 import { Reveal } from "@/components/Reveal";
+import {
+  getGuestCookieName,
+  readGuestPhone,
+} from "@/lib/guest-session";
 import { getSiteContent } from "@/lib/site-content";
 import { getInviteByToken } from "@/lib/store";
 
@@ -13,6 +18,10 @@ type Props = {
 
 export default async function InvitePage({ params }: Props) {
   const { token } = await params;
+  const cookieStore = await cookies();
+  const hasGuestSession = Boolean(
+    readGuestPhone(cookieStore.get(getGuestCookieName())?.value)
+  );
   const [invite, content] = await Promise.all([
     getInviteByToken(token),
     getSiteContent(),
@@ -45,6 +54,7 @@ export default async function InvitePage({ params }: Props) {
                 token={token}
                 invite={invite}
                 content={content}
+                hasGuestSession={hasGuestSession}
               />
             </Suspense>
           )}

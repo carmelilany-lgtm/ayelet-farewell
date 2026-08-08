@@ -860,10 +860,11 @@ export function AdminDashboard() {
 
   function restoreReminderDefaults() {
     setDirty(true);
-    setInfo("שוחזרה תבנית התזכורת לברירת מחדל — לחצו שמירה");
+    setInfo("שוחזרו תבניות התזכורת לברירת מחדל — לחצו שמירה");
     setContent((c) => ({
       ...c,
       reminderTemplate: DEFAULT_SITE_CONTENT.reminderTemplate,
+      reminderTemplateManual: DEFAULT_SITE_CONTENT.reminderTemplateManual,
       reminderIntro: DEFAULT_SITE_CONTENT.reminderIntro,
       reminderSiteLabel: DEFAULT_SITE_CONTENT.reminderSiteLabel,
       reminderLinkLabel: DEFAULT_SITE_CONTENT.reminderLinkLabel,
@@ -1764,14 +1765,34 @@ export function AdminDashboard() {
           {contentSection === "whatsapp" && (
             <Panel
               title="הודעות WhatsApp"
-              description="ערכים ישנים ב־CMS מתעדכנים אוטומטית בקריאה רק לשדות מוגדרים (לא לתבנית התזכורת). שמרו אחרי עריכה."
+              description="ערכים ישנים ב־CMS מתעדכנים אוטומטית בקריאה רק לשדות מוגדרים. שמרו אחרי עריכה."
             >
               <div className="content-preview">
                 <p className="content-preview-label">
-                  תצוגה מקדימה - תזכורת (למי שטרם עדכן סטטוס)
+                  תצוגה מקדימה — תזכורת (יובאו / טרם עדכנו סטטוס)
                 </p>
                 <pre className="content-preview-body">
                   {content.reminderTemplate
+                    .replaceAll("{name}", "[שם]")
+                    .replaceAll("{dateTime}", content.dateTime)
+                    .replaceAll("{place}", content.place)
+                    .replaceAll(
+                      "{siteUrl}",
+                      "https://ayelet-farewell.vercel.app"
+                    )
+                    .replaceAll(
+                      "{personalLink}",
+                      "https://ayelet-farewell.vercel.app/i/xxxxxxxx"
+                    )}
+                </pre>
+              </div>
+              <div className="content-preview">
+                <p className="content-preview-label">
+                  תצוגה מקדימה — הזמנה (נוספו ידנית)
+                </p>
+                <pre className="content-preview-body">
+                  {(content.reminderTemplateManual ||
+                    DEFAULT_SITE_CONTENT.reminderTemplateManual)
                     .replaceAll("{name}", "[שם]")
                     .replaceAll("{dateTime}", content.dateTime)
                     .replaceAll("{place}", content.place)
@@ -1791,7 +1812,7 @@ export function AdminDashboard() {
                   className="admin-btn ghost"
                   onClick={restoreReminderDefaults}
                 >
-                  שחזור תבנית תזכורת לברירת מחדל
+                  שחזור שתי תבניות התזכורת לברירת מחדל
                 </button>
               </div>
               <Accordion title="עריכת הודעות" defaultOpen>
@@ -1801,7 +1822,14 @@ export function AdminDashboard() {
                   fields={[
                     {
                       key: "reminderTemplate",
-                      label: "תזכורת — טרם נרשמו / עדכון סטטוס",
+                      label: "תזכורת — יובאו / טרם עדכנו סטטוס",
+                      multiline: true,
+                      rows: 12,
+                      hint: "{name} {dateTime} {place} · {siteUrl} {personalLink}",
+                    },
+                    {
+                      key: "reminderTemplateManual",
+                      label: "הזמנה — נוספו ידנית (ממתינים)",
                       multiline: true,
                       rows: 12,
                       hint: "{name} {dateTime} {place} · {siteUrl} {personalLink}",
