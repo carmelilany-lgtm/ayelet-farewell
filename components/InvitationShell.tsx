@@ -38,7 +38,7 @@ export function InvitationShell({
             )}
           </p>
           {!compact && (
-            <a className="cta-link animate-fade-up delay-3" href="#details">
+            <a className="cta-link animate-fade-up delay-3" href="#rsvp">
               {content.ctaLabel}
             </a>
           )}

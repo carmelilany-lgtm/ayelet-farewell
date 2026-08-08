@@ -16,20 +16,20 @@ function apiBaseUrl(): string {
   return `${host}/waInstance${id}/sendMessage/${token}`;
 }
 
-/** Israeli 05… → WhatsApp chatId 9725…@c.us */
+/** Accepts 05…, +9725…, 9725… → chatId */
 export function phoneToChatId(phone: string): string | null {
+  const digits = String(phone).replace(/\D/g, "");
+  if (digits.startsWith("972") && digits.length >= 11) {
+    return `${digits}@c.us`;
+  }
   const local = normalizePhone(phone);
   if (!local) return null;
   return `972${local.slice(1)}@c.us`;
 }
 
-export type GreenSendResult = {
-  ok: true;
-  idMessage: string;
-} | {
-  ok: false;
-  error: string;
-};
+export type GreenSendResult =
+  | { ok: true; idMessage: string }
+  | { ok: false; error: string };
 
 export async function sendWhatsAppText(
   phone: string,
@@ -38,7 +38,8 @@ export async function sendWhatsAppText(
   if (!hasGreenApiConfig()) {
     return {
       ok: false,
-      error: "Green API לא מוגדר. הוסיפו GREEN_API_ID_INSTANCE ו־GREEN_API_TOKEN_INSTANCE",
+      error:
+        "Green API לא מוגדר. הוסיפו GREEN_API_ID_INSTANCE ו־GREEN_API_TOKEN_INSTANCE",
     };
   }
 
@@ -75,4 +76,10 @@ export async function sendWhatsAppText(
     console.error("Green API send failed", err);
     return { ok: false, error: "כשל ברשת מול Green API" };
   }
+}
+
+export function organizerNotifyPhone(): string {
+  return (
+    process.env.ORGANIZER_NOTIFY_PHONE?.trim() || "+972544854584"
+  );
 }

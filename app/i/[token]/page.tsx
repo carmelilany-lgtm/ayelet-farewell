@@ -1,5 +1,6 @@
 import { InvitationShell } from "@/components/InvitationShell";
 import { InvitePageClient } from "@/components/InvitePageClient";
+import { CONFIRM_PROMPT } from "@/lib/copy";
 import { getSiteContent } from "@/lib/site-content";
 import { getInviteByToken } from "@/lib/store";
 
@@ -16,11 +17,6 @@ export default async function InvitePage({ params }: Props) {
     getSiteContent(),
   ]);
 
-  const lead = content.rsvpLeadInvite.replace(
-    "{name}",
-    invite?.full_name || ""
-  );
-
   return (
     <InvitationShell content={content} compact>
       <section id="rsvp" className="rsvp-section" aria-labelledby="rsvp-title">
@@ -32,10 +28,14 @@ export default async function InvitePage({ params }: Props) {
             <div className="success-panel">
               <p className="success-title">{content.invalidLinkTitle}</p>
               <p className="success-body">{content.invalidLinkBody}</p>
+              <p className="gift-note">
+                אפשר גם להיכנס דרך{" "}
+                <a href="/#rsvp">התחברות עם מספר טלפון</a>.
+              </p>
             </div>
           ) : (
             <>
-              <p className="rsvp-lead">{lead}</p>
+              <p className="confirm-prompt">{CONFIRM_PROMPT}</p>
               <InvitePageClient token={token} invite={invite} />
             </>
           )}

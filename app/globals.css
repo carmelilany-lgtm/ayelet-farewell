@@ -271,6 +271,17 @@ a {
   color: var(--dusty-soft);
 }
 
+.confirm-prompt {
+  margin: 0 0 1.25rem;
+  padding: 1rem 1.1rem;
+  background: #eef4f8;
+  border-right: 3px solid var(--dusty);
+  color: var(--dusty-deep);
+  font-size: 1.02rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
 .rsvp-form,
 .success-panel {
   display: grid;

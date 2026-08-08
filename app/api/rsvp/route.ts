@@ -1,10 +1,22 @@
 import { z } from "zod";
-import { getInviteByToken, updateRsvpByToken } from "@/lib/store";
+import { parseGuestCookie } from "@/lib/guest-session";
+import {
+  organizerNotifyPhone,
+  sendWhatsAppText,
+} from "@/lib/green-api";
+import { buildOrganizerConfirmMessage } from "@/lib/reminder-message";
+import {
+  getInviteByToken,
+  getRsvpByToken,
+  updateRsvpByPhone,
+  updateRsvpByToken,
+} from "@/lib/store";
+import type { Rsvp } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 const bodySchema = z.object({
-  token: z.string().trim().min(16).max(64),
+  token: z.string().trim().min(16).max(64).optional(),
   guest_count: z.coerce.number().int().min(1).max(10),
   status: z.enum(["confirmed", "declined", "maybe"]),
   notes: z.string().trim().max(1000).optional().nullable(),
@@ -14,30 +26,44 @@ const rateMap = new Map<string, { count: number; resetAt: number }>();
 
 function rateLimit(ip: string): boolean {
   const now = Date.now();
-  const windowMs = 60_000;
-  const max = 20;
   const entry = rateMap.get(ip);
   if (!entry || entry.resetAt < now) {
-    rateMap.set(ip, { count: 1, resetAt: now + windowMs });
+    rateMap.set(ip, { count: 1, resetAt: now + 60_000 });
     return true;
   }
-  if (entry.count >= max) return false;
+  if (entry.count >= 20) return false;
   entry.count += 1;
   return true;
 }
 
-/** Load invite by personal token — never looks up by phone. */
+async function notifyOrganizer(rsvp: Rsvp) {
+  const result = await sendWhatsAppText(
+    organizerNotifyPhone(),
+    buildOrganizerConfirmMessage({
+      fullName: rsvp.full_name,
+      phone: rsvp.phone,
+      guestCount: rsvp.guest_count,
+      status: rsvp.status,
+      notes: rsvp.notes,
+    })
+  );
+  if (!result.ok) {
+    console.error("Organizer notify failed", result.error);
+  }
+}
+
 export async function GET(request: Request) {
   const token = new URL(request.url).searchParams.get("token")?.trim() || "";
   if (!token) {
     return Response.json({ error: "חסר קישור" }, { status: 400 });
   }
-
   try {
     const invite = await getInviteByToken(token);
     if (!invite) {
-      // Same response shape for unknown tokens — no enumeration by phone
-      return Response.json({ error: "הקישור לא תקין או שפג תוקפו" }, { status: 404 });
+      return Response.json(
+        { error: "הקישור לא תקין או שפג תוקפו" },
+        { status: 404 }
+      );
     }
     return Response.json({ invite });
   } catch (err) {
@@ -49,9 +75,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const ip =
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
     "unknown";
-
   if (!rateLimit(ip)) {
     return Response.json(
       { error: "יותר מדי ניסיונות. נסו שוב בעוד דקה." },
@@ -69,32 +93,67 @@ export async function POST(request: Request) {
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
     return Response.json(
-      { error: "נא למלא את כל השדות כנדרש", details: parsed.error.flatten() },
+      { error: "נא למלא את כל השדות כנדרש" },
       { status: 400 }
     );
   }
 
   const guestCount =
     parsed.data.status === "declined" ? 0 : parsed.data.guest_count;
+  const count =
+    guestCount || (parsed.data.status === "declined" ? 0 : 1);
+  const sessionPhone = parseGuestCookie(request.headers.get("cookie"));
 
   try {
-    const invite = await updateRsvpByToken(parsed.data.token, {
-      guest_count:
-        guestCount || (parsed.data.status === "declined" ? 0 : 1),
-      status: parsed.data.status,
-      notes: parsed.data.notes ?? null,
-    });
+    let full: Rsvp | null = null;
 
-    if (!invite) {
+    if (parsed.data.token) {
+      const invite = await updateRsvpByToken(parsed.data.token, {
+        guest_count: count,
+        status: parsed.data.status,
+        notes: parsed.data.notes ?? null,
+      });
+      if (!invite) {
+        return Response.json(
+          { error: "הקישור לא תקין או שפג תוקפו" },
+          { status: 404 }
+        );
+      }
+      full = await getRsvpByToken(parsed.data.token);
+    } else if (sessionPhone) {
+      full = await updateRsvpByPhone(sessionPhone, {
+        guest_count: count,
+        status: parsed.data.status,
+        notes: parsed.data.notes ?? null,
+      });
+      if (!full) {
+        return Response.json({ error: "לא נמצאה הרשמה" }, { status: 404 });
+      }
+    } else {
       return Response.json(
-        { error: "הקישור לא תקין או שפג תוקפו" },
-        { status: 404 }
+        { error: "יש להתחבר עם מספר טלפון או להשתמש בקישור האישי" },
+        { status: 401 }
       );
     }
 
-    return Response.json({ ok: true, invite });
+    if (full) {
+      await notifyOrganizer(full);
+    }
+
+    return Response.json({
+      ok: true,
+      invite: full
+        ? {
+            full_name: full.full_name,
+            guest_count: full.guest_count,
+            status: full.status,
+            notes: full.notes,
+            already_final: true,
+          }
+        : null,
+    });
   } catch (err) {
-    console.error("RSVP token update failed", err);
+    console.error("RSVP update failed", err);
     return Response.json({ error: "שגיאה בשמירה. נסו שוב." }, { status: 500 });
   }
 }

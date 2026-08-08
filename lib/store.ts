@@ -148,11 +148,59 @@ export async function markReminderSent(
   return rows[idx];
 }
 
-export async function getInviteByToken(
-  token: string
-): Promise<PublicInviteView | null> {
-  if (!token || token.length < 16) return null;
+export async function getRsvpByPhone(phone: string): Promise<Rsvp | null> {
+  if (hasSupabaseConfig()) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("rsvps")
+      .select("*")
+      .eq("phone", phone)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? normalizeRow(data as Rsvp) : null;
+  }
+  const rows = await readLocal();
+  return rows.find((r) => r.phone === phone) ?? null;
+}
 
+export async function updateRsvpByPhone(
+  phone: string,
+  input: TokenUpdateInput
+): Promise<Rsvp | null> {
+  const timestamp = nowIso();
+
+  if (hasSupabaseConfig()) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("rsvps")
+      .update({
+        guest_count: input.guest_count,
+        status: input.status,
+        notes: input.notes ?? null,
+        final_confirmed_at: timestamp,
+      })
+      .eq("phone", phone)
+      .select("*")
+      .maybeSingle();
+    if (error) throw error;
+    return data ? normalizeRow(data as Rsvp) : null;
+  }
+
+  const rows = await readLocal();
+  const idx = rows.findIndex((r) => r.phone === phone);
+  if (idx < 0) return null;
+  rows[idx] = {
+    ...rows[idx],
+    guest_count: input.guest_count,
+    status: input.status,
+    notes: input.notes ?? rows[idx].notes,
+    final_confirmed_at: timestamp,
+    updated_at: timestamp,
+  };
+  await writeLocal(rows);
+  return rows[idx];
+}
+
+export async function getRsvpByToken(token: string): Promise<Rsvp | null> {
+  if (!token || token.length < 16) return null;
   if (hasSupabaseConfig()) {
     const { data, error } = await getSupabaseAdmin()
       .from("rsvps")
@@ -160,14 +208,17 @@ export async function getInviteByToken(
       .eq("invite_token", token)
       .maybeSingle();
     if (error) throw error;
-    if (!data) return null;
-    return toPublicView(normalizeRow(data as Rsvp));
+    return data ? normalizeRow(data as Rsvp) : null;
   }
-
   const rows = await readLocal();
-  const row = rows.find((r) => r.invite_token === token);
-  if (!row) return null;
-  return toPublicView(row);
+  return rows.find((r) => r.invite_token === token) ?? null;
+}
+
+export async function getInviteByToken(
+  token: string
+): Promise<PublicInviteView | null> {
+  const row = await getRsvpByToken(token);
+  return row ? toPublicView(row) : null;
 }
 
 export async function updateRsvpByToken(
