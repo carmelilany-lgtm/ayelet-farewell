@@ -35,6 +35,16 @@ export function InvitationShell({
         </div>
       </section>
 
+      <section className="venue-section" aria-label="המקום">
+        <div className="venue-image-wrap">
+          <img
+            src="/venue.jpg"
+            alt="תחנת רוח, טבעון"
+            className="venue-image"
+          />
+        </div>
+      </section>
+
       <section id="details" aria-labelledby="program-title">
         <div className="section">
           <h2 id="program-title" className="section-title">
