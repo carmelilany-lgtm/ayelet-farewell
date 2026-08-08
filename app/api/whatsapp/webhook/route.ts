@@ -22,6 +22,7 @@ import {
   fetchShortJoke,
   isJokeRequest,
   jokeAuthorizedPhones,
+  JOKE_MORE_BUTTON,
   JOKE_ONLY_HINT,
   resolveAllowlistedPhone,
 } from "@/lib/wa-joke";
@@ -200,9 +201,12 @@ export async function POST(request: Request) {
   const replyTo = jokePhone;
 
   // Jokes: organizers + joke-only allowlist. Joke-only never reaches menus below.
-  if (isJokeRequest(text, buttonId)) {
+  if (isJokeRequest(text, buttonId, { allowMoreText: !isOrganizer })) {
     const joke = await fetchShortJoke();
-    await sendWhatsAppText(replyTo, joke);
+    await sendOrganizerMenuMessage(replyTo, {
+      body: joke,
+      buttons: [JOKE_MORE_BUTTON],
+    });
     return Response.json({
       ok: true,
       joke: true,

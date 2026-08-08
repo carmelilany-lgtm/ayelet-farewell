@@ -15,12 +15,24 @@ export function jokeAuthorizedPhones(): string[] {
   return [...new Set(phones)];
 }
 
-export function isJokeRequest(text: string, buttonId?: string | null): boolean {
-  if (buttonId && /^joke$/i.test(buttonId.trim())) return true;
+export function isJokeRequest(
+  text: string,
+  buttonId?: string | null,
+  opts?: { allowMoreText?: boolean }
+): boolean {
+  if (buttonId && /^(joke|joke-more)$/i.test(buttonId.trim())) return true;
   const t = text.trim();
   if (!t) return false;
-  return /^(בדיחה|joke|jokes|dad\s*joke)[!?.]*$/i.test(t);
+  if (/^(בדיחה|joke|jokes|dad\s*joke)[!?.]*$/i.test(t)) return true;
+  // Plain "עוד" only for joke-only numbers — organizers use "עוד" in the menu.
+  if (opts?.allowMoreText && /^עוד[!?.]*$/i.test(t)) return true;
+  return false;
 }
+
+export const JOKE_MORE_BUTTON = {
+  buttonId: "joke",
+  buttonText: "עוד",
+} as const;
 
 export const JOKE_ONLY_HINT =
   "יש לך גישה רק לבדיחות.\nשלחו: בדיחה";
