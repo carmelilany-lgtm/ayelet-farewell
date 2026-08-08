@@ -32,8 +32,10 @@ import {
 const PAGE_SIZE = 8;
 const MAIN_PAGE_COUNT = 4;
 
-/** Max guests as reply buttons (leave ≥1 slot for אחורה; Meta max = 3). */
+/** Max guests as reply buttons (leave ≥1 slot for nav; Meta max = 3). */
 const GUEST_BUTTON_MAX = 2;
+
+const MENU_CLOSED_MESSAGE = "התפריט נסגר.\nלפתיחה מחדש שלחו עזרה";
 
 const STATUS_LABEL: Record<RsvpStatus, string> = {
   imported: "ממתין לאישור",
@@ -64,9 +66,12 @@ function btn(buttonId: string, buttonText: string): ReplyButton {
   return { buttonId, buttonText };
 }
 
-function navFooter(opts?: { onMain?: boolean }): string {
+function navFooter(opts?: { onMain?: boolean; backIsHome?: boolean }): string {
   if (opts?.onMain) {
     return `\n0 יציאה מהתפריט`;
+  }
+  if (opts?.backIsHome) {
+    return `\n9 תפריט ראשי`;
   }
   return `\n0 אחורה\n9 תפריט ראשי`;
 }
@@ -92,22 +97,52 @@ function mainPageButtons(page: number): ReplyButton[] {
   }
 }
 
+/**
+ * When אחורה and לתפריט הראשי land on the same screen (usually main),
+ * drop the duplicate and use the slot for יציאה.
+ */
 function navButtons(opts?: {
   hasPrev?: boolean;
   hasNext?: boolean;
+  backIsHome?: boolean;
 }): ReplyButton[] {
   const hasPrev = Boolean(opts?.hasPrev);
   const hasNext = Boolean(opts?.hasNext);
+  const backIsHome = Boolean(opts?.backIsHome);
+
   if (hasPrev && hasNext) {
     return [btn("prev", "הקודם"), btn("next", "הבא"), btn("home", "לתפריט הראשי")];
   }
   if (hasNext) {
+    if (backIsHome) {
+      return [
+        btn("next", "הבא"),
+        btn("home", "לתפריט הראשי"),
+        btn("exit", "יציאה"),
+      ];
+    }
     return [btn("back", "אחורה"), btn("next", "הבא"), btn("home", "לתפריט הראשי")];
   }
   if (hasPrev) {
+    if (backIsHome) {
+      return [
+        btn("prev", "הקודם"),
+        btn("home", "לתפריט הראשי"),
+        btn("exit", "יציאה"),
+      ];
+    }
     return [btn("back", "אחורה"), btn("prev", "הקודם"), btn("home", "לתפריט הראשי")];
   }
+  if (backIsHome) {
+    return [btn("home", "לתפריט הראשי"), btn("exit", "יציאה")];
+  }
   return [btn("back", "אחורה"), btn("home", "לתפריט הראשי")];
+}
+
+/** True when popping the stack lands on main (same as «לתפריט הראשי»). */
+function backLandsOnHome(stack: MenuScreen[]): boolean {
+  if (stack.length === 0) return true;
+  return stack[stack.length - 1]?.id === "main";
 }
 
 function shortName(name: string): string {
@@ -136,7 +171,11 @@ export function renderMainMenu(page = 0, forButtons = true): string {
 ${navFooter({ onMain: true })}`;
 }
 
-function renderSummary(summary: RsvpSummary, forButtons = true): string {
+function renderSummary(
+  summary: RsvpSummary,
+  forButtons = true,
+  backIsHome = false
+): string {
   const body = `*סיכום*
 רשומות: ${summary.total_records}
 אושרו: ${summary.confirmed}
@@ -147,10 +186,10 @@ function renderSummary(summary: RsvpSummary, forButtons = true): string {
 אורחים מגיעים (ספירה): ${summary.total_guests_attending}
 תזכורות נשלחו: ${summary.reminders_sent}
 תזכורות ממתינות: ${summary.reminders_pending}`;
-  return forButtons ? body : `${body}${navFooter()}`;
+  return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
 }
 
-function renderAddHelp(forButtons = true): string {
+function renderAddHelp(forButtons = true, backIsHome = false): string {
   const body = `*הוספת אורח ידנית*
 שלחו למספר הזה הודעה בשתי שורות (בלי תפריט):
 
@@ -159,13 +198,13 @@ function renderAddHelp(forButtons = true): string {
 
 אדם אחד בכל פעם.
 אם המספר כבר קיים — תקבלו שאלה האם לעדכן שם.`;
-  return forButtons ? body : `${body}${navFooter()}`;
+  return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
 }
 
-function renderSearchPrompt(forButtons = true): string {
+function renderSearchPrompt(forButtons = true, backIsHome = false): string {
   const body = `*חיפוש אורח*
 שלחו שם (חלקי) או מספר טלפון.`;
-  return forButtons ? body : `${body}${navFooter()}`;
+  return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
 }
 
 function pageSlice(ids: string[], page: number) {
@@ -193,7 +232,8 @@ function listTitle(filter: ListFilter): string {
 function renderList(
   screen: Extract<MenuScreen, { id: "list" }>,
   byId: Map<string, Rsvp>,
-  forButtons = true
+  forButtons = true,
+  backIsHome = false
 ): string {
   const { start, slice, total, hasMore, hasPrev } = pageSlice(
     screen.ids,
@@ -203,7 +243,7 @@ function renderList(
   if (total === 0) {
     return forButtons
       ? `*${title}*\nלא נמצאו אורחים.`
-      : `*${title}*\nלא נמצאו אורחים.\n${navFooter()}`;
+      : `*${title}*\nלא נמצאו אורחים.\n${navFooter({ backIsHome })}`;
   }
 
   // Few choices → bullets + reply buttons only (no numbers).
@@ -249,7 +289,7 @@ ${lines.join("\n")}
 ${lines.join("\n")}
 ${more.length ? `\n${more.join("\n")}\n` : ""}
 בחרו מספר לצפייה בפרטים.
-${navFooter()}`;
+${navFooter({ backIsHome })}`;
 }
 
 /** Clean body for interactive list (no numbers). */
@@ -264,7 +304,11 @@ function renderListPickerBody(
 בחרו אורח מהרשימה.`;
 }
 
-export function formatGuestFull(guest: Rsvp, forButtons = true): string {
+export function formatGuestFull(
+  guest: Rsvp,
+  forButtons = true,
+  backIsHome = false
+): string {
   const siteUrl = siteAbsoluteUrl();
   const link = inviteAbsoluteUrl(guest.invite_token, siteUrl);
   const manual = isManualPendingGuest(guest) ? "כן" : "לא";
@@ -285,7 +329,7 @@ export function formatGuestFull(guest: Rsvp, forButtons = true): string {
     `נוצר: ${guest.created_at}`,
   ];
   const body = lines.join("\n");
-  return forButtons ? body : `${body}${navFooter()}`;
+  return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
 }
 
 function filterGuests(all: Rsvp[], filter: ListFilter): Rsvp[] {
@@ -314,7 +358,8 @@ function filterGuests(all: Rsvp[], filter: ListFilter): Rsvp[] {
 
 async function renderScreen(
   screen: MenuScreen,
-  all: Rsvp[]
+  all: Rsvp[],
+  stack: MenuScreen[] = []
 ): Promise<{
   message: string;
   textFallback: string;
@@ -323,6 +368,9 @@ async function renderScreen(
   list?: MenuReply["list"];
 }> {
   const byId = new Map(all.map((r) => [r.id, r]));
+  const backIsHome = backLandsOnHome(stack);
+  const nav = { backIsHome };
+
   switch (screen.id) {
     case "main": {
       const page = screen.page ?? 0;
@@ -335,46 +383,53 @@ async function renderScreen(
     case "summary": {
       const summary = await getSummary();
       return {
-        message: renderSummary(summary, true),
-        textFallback: renderSummary(summary, false),
-        buttons: navButtons(),
+        message: renderSummary(summary, true, backIsHome),
+        textFallback: renderSummary(summary, false, backIsHome),
+        buttons: navButtons(nav),
       };
     }
     case "search_prompt":
       return {
-        message: renderSearchPrompt(true),
-        textFallback: renderSearchPrompt(false),
-        buttons: navButtons(),
+        message: renderSearchPrompt(true, backIsHome),
+        textFallback: renderSearchPrompt(false, backIsHome),
+        buttons: navButtons(nav),
         footer: "הקלידו שם או טלפון",
       };
     case "add_help":
       return {
-        message: renderAddHelp(true),
-        textFallback: renderAddHelp(false),
-        buttons: navButtons(),
+        message: renderAddHelp(true, backIsHome),
+        textFallback: renderAddHelp(false, backIsHome),
+        buttons: navButtons(nav),
       };
     case "list": {
       const { slice, hasMore, hasPrev } = pageSlice(screen.ids, screen.page);
       const useGuestButtons = slice.length > 0 && slice.length <= GUEST_BUTTON_MAX;
       const useGuestList =
         slice.length >= 3 && slice.length <= 10 && !useGuestButtons;
+      const pageNav = { hasPrev, hasNext: hasMore, backIsHome };
       let buttons: ReplyButton[];
       if (slice.length === 0) {
-        buttons = navButtons();
+        buttons = navButtons(nav);
       } else if (useGuestButtons) {
         buttons = [
           ...slice.map((id, i) => {
             const g = byId.get(id);
             return btn(`g${i}`, shortName(g?.full_name || `אורח ${i + 1}`));
           }),
-          btn("back", "אחורה"),
         ];
-        // If only one guest, add home as third button.
-        if (slice.length === 1) {
+        if (backIsHome) {
           buttons.push(btn("home", "לתפריט הראשי"));
+          if (slice.length === 1) {
+            buttons.push(btn("exit", "יציאה"));
+          }
+        } else {
+          buttons.push(btn("back", "אחורה"));
+          if (slice.length === 1) {
+            buttons.push(btn("home", "לתפריט הראשי"));
+          }
         }
       } else {
-        buttons = navButtons({ hasPrev, hasNext: hasMore });
+        buttons = navButtons(pageNav);
       }
 
       const list: MenuReply["list"] | undefined = useGuestList
@@ -396,13 +451,13 @@ async function renderScreen(
                 }),
               },
             ],
-            navButtons: navButtons({ hasPrev, hasNext: hasMore }),
+            navButtons: navButtons(pageNav),
           }
         : undefined;
 
       return {
-        message: renderList(screen, byId, true),
-        textFallback: renderList(screen, byId, false),
+        message: renderList(screen, byId, true, backIsHome),
+        textFallback: renderList(screen, byId, false, backIsHome),
         buttons,
         footer: useGuestButtons ? undefined : "בחרו מספר אורח",
         list,
@@ -414,14 +469,14 @@ async function renderScreen(
       if (!guest) {
         return {
           message: "אורח לא נמצא.",
-          textFallback: `אורח לא נמצא.\n${navFooter()}`,
-          buttons: navButtons(),
+          textFallback: `אורח לא נמצא.\n${navFooter(nav)}`,
+          buttons: navButtons(nav),
         };
       }
       return {
-        message: formatGuestFull(guest, true),
-        textFallback: formatGuestFull(guest, false),
-        buttons: navButtons(),
+        message: formatGuestFull(guest, true, backIsHome),
+        textFallback: formatGuestFull(guest, false, backIsHome),
+        buttons: navButtons(nav),
       };
     }
   }
@@ -447,7 +502,11 @@ async function replyForScreen(
     screen.id === "main" ? [] : stack
   );
   const all = await listRsvps();
-  const rendered = await renderScreen(saved!.screen, all);
+  const rendered = await renderScreen(
+    saved!.screen,
+    all,
+    screen.id === "main" ? [] : stack
+  );
   return menuFromRendered(rendered, { exited });
 }
 
@@ -481,7 +540,7 @@ async function goBack(
     return {
       handled: true,
       exited: true,
-      message: "יצאתם מהתפריט. לשוב — שלחו: עזרה",
+      message: MENU_CLOSED_MESSAGE,
     };
   }
   const stack = [...session.stack];
@@ -610,7 +669,7 @@ export async function handleOrganizerMenu(opts: {
     return {
       handled: true,
       exited: true,
-      message: "יצאתם מהתפריט. לשוב — שלחו: עזרה",
+      message: MENU_CLOSED_MESSAGE,
     };
   }
 
@@ -620,7 +679,7 @@ export async function handleOrganizerMenu(opts: {
     action === "home"
   ) {
     const opened = await goMain(phone, 0);
-    const rendered = await renderScreen(opened!.screen, await listRsvps());
+    const rendered = await renderScreen(opened!.screen, await listRsvps(), []);
     return menuFromRendered(rendered);
   }
 
@@ -706,7 +765,11 @@ export async function handleOrganizerMenu(opts: {
   if (choice === null) {
     // Unknown button on non-main screens → gentle hint with nav buttons
     if (session.screen.id !== "main") {
-      const rendered = await renderScreen(session.screen, await listRsvps());
+      const rendered = await renderScreen(
+        session.screen,
+        await listRsvps(),
+        session.stack
+      );
       return {
         handled: true,
         message: `לא הבנתי. השתמשו בכפתורים.\n\n${rendered.message}`,
@@ -716,7 +779,11 @@ export async function handleOrganizerMenu(opts: {
         list: rendered.list,
       };
     }
-    const rendered = await renderScreen(session.screen, await listRsvps());
+    const rendered = await renderScreen(
+      session.screen,
+      await listRsvps(),
+      session.stack
+    );
     return {
       handled: true,
       message: `לא הבנתי. בחרו כפתור מהתפריט.\n\n${rendered.message}`,
@@ -730,7 +797,7 @@ export async function handleOrganizerMenu(opts: {
   // Global 9 = home
   if (choice === 9) {
     const opened = await goMain(phone, 0);
-    const rendered = await renderScreen(opened!.screen, await listRsvps());
+    const rendered = await renderScreen(opened!.screen, await listRsvps(), []);
     return menuFromRendered(rendered);
   }
 
@@ -761,7 +828,7 @@ export async function handleOrganizerMenu(opts: {
     };
     const filter = statusMap[choice];
     if (!filter) {
-      const rendered = await renderScreen(screen, await listRsvps());
+      const rendered = await renderScreen(screen, await listRsvps(), session.stack);
       return {
         handled: true,
         message: `בחרו אפשרות מהכפתורים.\n\n${rendered.message}`,
@@ -775,10 +842,13 @@ export async function handleOrganizerMenu(opts: {
   }
 
   if (screen.id === "summary" || screen.id === "add_help") {
-    const rendered = await renderScreen(screen, await listRsvps());
+    const rendered = await renderScreen(screen, await listRsvps(), session.stack);
+    const hint = backLandsOnHome(session.stack)
+      ? "בחרו לתפריט הראשי או יציאה."
+      : "בחרו אחורה או לתפריט הראשי.";
     return {
       handled: true,
-      message: `בחרו אחורה או לתפריט הראשי.\n\n${rendered.message}`,
+      message: `${hint}\n\n${rendered.message}`,
       textFallback: rendered.textFallback,
       buttons: rendered.buttons,
       footer: rendered.footer,
@@ -787,7 +857,7 @@ export async function handleOrganizerMenu(opts: {
   }
 
   if (screen.id === "search_prompt") {
-    const rendered = await renderScreen(screen, await listRsvps());
+    const rendered = await renderScreen(screen, await listRsvps(), session.stack);
     return menuFromRendered(rendered);
   }
 
@@ -816,7 +886,7 @@ export async function handleOrganizerMenu(opts: {
         session.stack
       );
     }
-    const rendered = await renderScreen(screen, await listRsvps());
+    const rendered = await renderScreen(screen, await listRsvps(), session.stack);
     return {
       handled: true,
       message: `בחרו מספר אורח מהרשימה, או כפתור ניווט.\n\n${rendered.message}`,
@@ -828,10 +898,13 @@ export async function handleOrganizerMenu(opts: {
   }
 
   if (screen.id === "guest") {
-    const rendered = await renderScreen(screen, await listRsvps());
+    const rendered = await renderScreen(screen, await listRsvps(), session.stack);
+    const hint = backLandsOnHome(session.stack)
+      ? "בחרו לתפריט הראשי או יציאה."
+      : "בחרו אחורה או לתפריט הראשי.";
     return {
       handled: true,
-      message: `בחרו אחורה או לתפריט הראשי.\n\n${rendered.message}`,
+      message: `${hint}\n\n${rendered.message}`,
       textFallback: rendered.textFallback,
       buttons: rendered.buttons,
       footer: rendered.footer,
@@ -840,7 +913,7 @@ export async function handleOrganizerMenu(opts: {
   }
 
   const opened = await goMain(phone, 0);
-  const rendered = await renderScreen(opened!.screen, await listRsvps());
+  const rendered = await renderScreen(opened!.screen, await listRsvps(), []);
   return menuFromRendered(rendered);
 }
 
