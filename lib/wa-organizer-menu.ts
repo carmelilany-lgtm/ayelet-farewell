@@ -33,7 +33,8 @@ const MAIN_PAGE_COUNT = 4;
 /** Max guests as reply buttons (leave ≥1 slot for nav; Meta max = 3). */
 const GUEST_BUTTON_MAX = 2;
 
-const MENU_CLOSED_MESSAGE = "התפריט נסגר.\nלפתיחה מחדש שלחו עזרה";
+const MENU_CLOSED_MESSAGE =
+  "התפריט נסגר.\nלפתיחה מחדש שלחו עזרה\nלבדיחה שלחו: בדיחה";
 /** WhatsApp interactive footer (≤60 chars) — how to leave the menu. */
 const MENU_EXIT_FOOTER = "לסגירה שלחו: יציאה";
 

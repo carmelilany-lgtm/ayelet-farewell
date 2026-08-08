@@ -1,7 +1,6 @@
-import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
+import { formatPhoneDisplay } from "@/lib/phone";
 import {
   organizerNotifyPhones,
-  resolveWhatsAppChatId,
   sendOrganizerMenuMessage,
   sendWhatsAppText,
 } from "@/lib/green-api";
@@ -19,12 +18,17 @@ import {
   renameGuestByPhone,
 } from "@/lib/store";
 import { normalizeGuestName } from "@/lib/types";
+import {
+  fetchShortJoke,
+  isJokeRequest,
+  jokeAuthorizedPhones,
+  JOKE_ONLY_HINT,
+  resolveAllowlistedPhone,
+} from "@/lib/wa-joke";
 import { handleOrganizerMenu } from "@/lib/wa-organizer-menu";
 import {
-  isOrganizerSender,
   looksLikeAddGuestTemplate,
   parseAddGuestMessage,
-  phoneFromWhatsAppId,
 } from "@/lib/whatsapp-add-guest";
 import {
   clearPendingRename,
@@ -122,33 +126,6 @@ function extractOrganizerInput(body: GreenWebhookBody): OrganizerInput | null {
   return null;
 }
 
-/**
- * Map webhook sender (@c.us or @lid) to an organizer local phone (05…).
- */
-async function resolveOrganizerPhone(
-  senderChatId: string,
-  organizers: string[]
-): Promise<string | null> {
-  if (isOrganizerSender(senderChatId, organizers)) {
-    return (
-      phoneFromWhatsAppId(senderChatId) ||
-      normalizePhone(organizers[0] || "") ||
-      null
-    );
-  }
-
-  // Privacy LID chats: match sender chatId against each organizer's resolved id.
-  const senderKey = senderChatId.trim().toLowerCase();
-  for (const org of organizers) {
-    const resolved = await resolveWhatsAppChatId(org);
-    if (!resolved) continue;
-    if (resolved.trim().toLowerCase() === senderKey) {
-      return normalizePhone(org);
-    }
-  }
-  return null;
-}
-
 function conflictMessage(code: string): string {
   switch (code) {
     case "ALREADY_CONFIRMED":
@@ -176,9 +153,9 @@ function webhookAuthorized(request: Request): boolean {
 }
 
 /**
- * Green API incoming webhook for organizers:
- * - name + phone (2 lines) → add guest (unchanged)
- * - עזרה / תפריט / reply buttons → info menus (no messaging guests)
+ * Green API incoming webhook:
+ * - Organizers: add guest, rename, info menus, jokes
+ * - Joke-authorized phones (JOKE_AUTHORIZED_PHONES): jokes only
  */
 export async function POST(request: Request) {
   if (!webhookAuthorized(request)) {
@@ -206,9 +183,36 @@ export async function POST(request: Request) {
   const buttonId = input.buttonId;
 
   const organizers = organizerNotifyPhones();
-  const replyTo = await resolveOrganizerPhone(senderChatId, organizers);
-  if (!replyTo) {
-    return Response.json({ ok: true, ignored: "not_organizer" });
+  const jokePhones = jokeAuthorizedPhones();
+  const organizerPhone = await resolveAllowlistedPhone(
+    senderChatId,
+    organizers
+  );
+  const jokePhone =
+    organizerPhone ||
+    (await resolveAllowlistedPhone(senderChatId, jokePhones));
+
+  if (!jokePhone) {
+    return Response.json({ ok: true, ignored: "not_authorized" });
+  }
+
+  const isOrganizer = Boolean(organizerPhone);
+  const replyTo = jokePhone;
+
+  // Jokes: organizers + joke-only allowlist. Joke-only never reaches menus below.
+  if (isJokeRequest(text, buttonId)) {
+    const joke = await fetchShortJoke();
+    await sendWhatsAppText(replyTo, joke);
+    return Response.json({
+      ok: true,
+      joke: true,
+      organizer: isOrganizer,
+    });
+  }
+
+  if (!isOrganizer) {
+    await sendWhatsAppText(replyTo, JOKE_ONLY_HINT);
+    return Response.json({ ok: true, joke_only: true });
   }
 
   // Button taps are never add-guest / rename free-text.
@@ -391,5 +395,6 @@ export async function GET() {
     service: "ayelet-farewell-whatsapp-webhook",
     template: "שם\\nטלפון",
     menu: "עזרה",
+    joke: "בדיחה",
   });
 }
