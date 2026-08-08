@@ -19,6 +19,8 @@ type Guest = {
   status: RsvpStatus;
   notes: string | null;
   already_final: boolean;
+  /** On the list (e.g. manual add) but has not confirmed/declined yet */
+  pending_rsvp?: boolean;
   is_new?: boolean;
 };
 
@@ -51,7 +53,14 @@ export function PhoneAuthRsvp({ content }: Props) {
     setFullName(next.full_name || "");
     setGuestCount(Math.max(next.guest_count || 1, 1));
     setStatus(next.status === "declined" ? "declined" : "confirmed");
-    setEditing(!next.already_final);
+    // New guests fill the form. Existing (including manual pending) start from summary.
+    if (next.is_new) {
+      setEditing(true);
+    } else if (next.pending_rsvp || next.status === "imported") {
+      setEditing(false);
+    } else {
+      setEditing(!next.already_final);
+    }
     setStep("confirm");
   }
 
@@ -297,6 +306,33 @@ export function PhoneAuthRsvp({ content }: Props) {
   if (!guest) return null;
 
   const isNew = Boolean(guest.is_new);
+  const pendingRsvp =
+    Boolean(guest.pending_rsvp) || guest.status === "imported";
+
+  // Existing guest on the list who still needs to confirm status (manual add / import).
+  if (!isNew && pendingRsvp && !editing) {
+    return (
+      <div className="rsvp-form rsvp-summary animate-fade-up">
+        <p className="invitee-name">
+          {applyTemplate(content.guestGreeting, { name: guest.full_name })}
+        </p>
+        <p className="rsvp-lead">
+          {applyTemplate(content.rsvpLeadInvite, { name: guest.full_name })}
+        </p>
+        <p className="confirm-prompt">{content.confirmPrompt}</p>
+        <button
+          type="button"
+          className="submit-btn"
+          onClick={() => setEditing(true)}
+        >
+          {content.updateStatusLabel}
+        </button>
+        <button type="button" className="text-link-btn" onClick={logout}>
+          {content.logoutLabel}
+        </button>
+      </div>
+    );
+  }
 
   if (!isNew && guest.already_final && !editing) {
     const statusText =
@@ -354,11 +390,16 @@ export function PhoneAuthRsvp({ content }: Props) {
           </div>
         </>
       ) : (
-        <p className="invitee-name">
-          {applyTemplate(content.guestGreeting, { name: guest.full_name })}
-        </p>
+        <>
+          <p className="invitee-name">
+            {applyTemplate(content.guestGreeting, { name: guest.full_name })}
+          </p>
+          {pendingRsvp ? (
+            <p className="confirm-prompt">{content.confirmPrompt}</p>
+          ) : null}
+        </>
       )}
-      {!guest.already_final && (
+      {!isNew && !pendingRsvp && !guest.already_final && (
         <p className="confirm-prompt">{content.confirmPrompt}</p>
       )}
       {!isNew && guest.already_final && (
@@ -418,7 +459,7 @@ export function PhoneAuthRsvp({ content }: Props) {
       <button type="submit" className="submit-btn" disabled={busy}>
         {busy ? "…" : content.submitRsvpLabel}
       </button>
-      {!isNew && guest.already_final ? (
+      {!isNew && (guest.already_final || pendingRsvp) ? (
         <button
           type="button"
           className="text-link-btn"

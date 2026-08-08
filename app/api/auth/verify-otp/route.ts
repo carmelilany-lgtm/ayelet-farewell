@@ -58,12 +58,15 @@ export async function POST(request: Request) {
             status: "imported",
             notes: null,
             already_final: false,
+            pending_rsvp: false,
             is_new: true,
           },
         },
         { headers: { "Set-Cookie": guestSessionCookie(token) } }
       );
     }
+
+    const pendingRsvp = guest.status === "imported";
 
     return Response.json(
       {
@@ -78,7 +81,8 @@ export async function POST(request: Request) {
           wants_video_blessing: guest.wants_video_blessing,
           wants_to_speak: guest.wants_to_speak,
           excitement: guest.excitement,
-          already_final: Boolean(guest.final_confirmed_at),
+          already_final: Boolean(guest.final_confirmed_at) && !pendingRsvp,
+          pending_rsvp: pendingRsvp,
           is_new: false,
         },
       },

@@ -136,6 +136,8 @@ a {
   backdrop-filter: none;
   box-shadow: none;
   border-radius: 0;
+  container-type: inline-size;
+  overflow: visible;
 }
 
 .hero-ornament {
@@ -158,18 +160,18 @@ a {
 }
 
 .brand-title {
-  margin: 0 0 0.75rem;
+  margin: 0 auto 0.85rem;
   font-family: var(--font-sans), "Open Sans Hebrew", sans-serif;
-  /* Shrink on narrow screens so the full title stays on one line */
-  font-size: clamp(1.2rem, 7.4vw, 4.25rem);
+  /* Scale to container so long titles stay one full line */
+  font-size: clamp(0.88rem, 8cqi, 4.25rem);
   font-weight: 300;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
+  line-height: 1.35;
+  letter-spacing: -0.03em;
   color: var(--paper);
   white-space: nowrap;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: clip;
+  overflow: visible;
+  padding-block: 0.12em;
   text-shadow:
     0 2px 4px rgba(0, 0, 0, 0.8),
     0 4px 8px rgba(0, 0, 0, 0.6),
@@ -195,10 +197,17 @@ a {
   gap: 0.5rem;
   margin-bottom: 2.5rem;
   font-size: 1rem;
+  line-height: 1.55;
   color: rgba(255, 255, 255, 0.95);
+  overflow: visible;
   text-shadow: 
     0 1px 3px rgba(0, 0, 0, 0.8),
     0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.hero-details p {
+  margin: 0;
+  overflow: visible;
 }
 
 .countdown {
@@ -2158,12 +2167,13 @@ a.admin-btn.ghost:hover:not(:disabled) {
 @media (max-width: 640px) {
   .hero-content {
     margin-bottom: 0;
-    width: min(540px, calc(100% - 1.25rem));
-    padding: 2rem 0.35rem 2.5rem;
+    width: min(540px, calc(100% - 1rem));
+    padding: 2rem 0.25rem 2.5rem;
+    overflow: visible;
   }
 
   .brand-title {
-    font-size: clamp(1.15rem, 7.8vw, 2.6rem);
+    font-size: clamp(0.85rem, 7.5cqi, 2.2rem);
   }
 
   .section {

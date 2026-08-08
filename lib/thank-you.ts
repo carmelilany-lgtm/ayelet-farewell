@@ -19,6 +19,11 @@ export function resolveThankYouKind(opts: {
   if (opts.nextStatus === "declined") return "declined";
   if (opts.nextStatus === "maybe") return "maybe";
 
+  // First confirmation after import / manual add — always "confirmed".
+  if (opts.previousStatus === "imported") {
+    return "confirmed";
+  }
+
   const baselineCount =
     opts.previousStatus === "declined"
       ? 0

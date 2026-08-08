@@ -287,14 +287,20 @@ export async function updateRsvpByPhone(
   phone: string,
   input: TokenUpdateInput
 ): Promise<Rsvp | null> {
+  const existing = await getRsvpByPhone(phone);
+  if (!existing) return null;
+
   const timestamp = nowIso();
-  const patch = buildRsvpUpdate(input, timestamp);
+  const patch = {
+    ...buildRsvpUpdate(input, timestamp),
+    updated_at: timestamp,
+  };
 
   if (hasSupabaseConfig()) {
     const { data, error } = await getSupabaseAdmin()
       .from("rsvps")
       .update(patch)
-      .eq("phone", phone)
+      .eq("id", existing.id)
       .select("*")
       .maybeSingle();
     if (error) throw error;
@@ -302,12 +308,11 @@ export async function updateRsvpByPhone(
   }
 
   const rows = await readLocal();
-  const idx = rows.findIndex((r) => r.phone === phone);
+  const idx = rows.findIndex((r) => r.id === existing.id);
   if (idx < 0) return null;
   rows[idx] = {
     ...rows[idx],
     ...patch,
-    updated_at: timestamp,
   } as Rsvp;
   await writeLocal(rows);
   return rows[idx];
