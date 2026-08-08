@@ -1,6 +1,5 @@
 import type { ListSection, ReplyButton } from "./green-api";
 import { formatPhoneDisplay, normalizePhone, phonesMatch } from "./phone";
-import { inviteAbsoluteUrl, siteAbsoluteUrl } from "./invite-token";
 import { getSummary, listRsvps, getRsvpById } from "./store";
 import {
   isManualPendingGuest,
@@ -315,8 +314,6 @@ export function formatGuestFull(
   forButtons = true,
   backIsHome = false
 ): string {
-  const siteUrl = siteAbsoluteUrl();
-  const link = inviteAbsoluteUrl(guest.invite_token, siteUrl);
   const lines = [
     `*${guest.full_name}*`,
     `טלפון: ${formatPhoneDisplay(guest.phone)}`,
@@ -359,8 +356,6 @@ export function formatGuestFull(
   if (sheetLines.length > 0) {
     lines.push("", "*מהשיטס / הטופס:*", ...sheetLines);
   }
-
-  lines.push("", `קישור אישי:\n${link}`);
 
   const body = lines.join("\n");
   return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
