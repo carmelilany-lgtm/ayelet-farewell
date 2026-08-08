@@ -4,6 +4,7 @@ import {
   DEFAULT_SITE_CONTENT,
   legacyReminderTemplate,
   legacyWaThankYou,
+  migrateStoredSiteContent,
   normalizeProgramItems,
   sanitizeDeclinedWaTemplate,
   type SiteContent,
@@ -39,8 +40,17 @@ function mergeContent(partial: Partial<SiteContent> | null): SiteContent {
       merged.waThankYouDeclined
     );
   }
+  if (!partial?.waThankYouMaybe?.trim()) {
+    merged.waThankYouMaybe = DEFAULT_SITE_CONTENT.waThankYouMaybe;
+  }
+  if (!partial?.statusMaybeLabel?.trim()) {
+    merged.statusMaybeLabel = DEFAULT_SITE_CONTENT.statusMaybeLabel;
+  }
+  if (!partial?.thankYouMaybe?.trim()) {
+    merged.thankYouMaybe = DEFAULT_SITE_CONTENT.thankYouMaybe;
+  }
 
-  return merged;
+  return migrateStoredSiteContent(merged);
 }
 
 async function readLocal(): Promise<SiteContent> {

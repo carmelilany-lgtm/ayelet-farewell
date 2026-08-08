@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { RsvpChoiceFields } from "@/components/RsvpChoiceFields";
 import { applyTemplate, type SiteContent } from "@/lib/site-content-defaults";
 import {
   resolveThankYouKind,
@@ -19,7 +20,11 @@ type Props = {
 
 export function RsvpForm({ token, invite, content }: Props) {
   const initialStatus: Status =
-    invite.status === "declined" ? "declined" : "confirmed";
+    invite.status === "declined" ||
+    invite.status === "maybe" ||
+    invite.status === "confirmed"
+      ? invite.status
+      : "confirmed";
 
   const [guestCount, setGuestCount] = useState(
     Math.max(invite.guest_count || 1, 1)
@@ -50,6 +55,10 @@ export function RsvpForm({ token, invite, content }: Props) {
         setError(data.error || "שגיאה בשליחה");
         return;
       }
+      if (data.unchanged) {
+        setEditing(false);
+        return;
+      }
       setDoneKind(
         resolveThankYouKind({
           previousStatus: invite.status,
@@ -69,19 +78,31 @@ export function RsvpForm({ token, invite, content }: Props) {
   if (done && doneKind) {
     return (
       <div className="success-panel animate-fade-up" role="status">
-        <p className="success-title">
-          {applyTemplate(content.thankYouTitle, { name: invite.full_name })}
-        </p>
         <p className="success-body">
           {thankYouMessage(doneKind, content)}
         </p>
+        <button
+          type="button"
+          className="text-link-btn"
+          onClick={() => {
+            setDone(false);
+            setDoneKind(null);
+            setEditing(true);
+          }}
+        >
+          {content.updateStatusLabel}
+        </button>
       </div>
     );
   }
 
   if (invite.already_final && !editing) {
     const statusText =
-      status === "declined" ? content.statusNoLabel : content.statusYesLabel;
+      status === "declined"
+        ? content.statusNoLabel
+        : status === "maybe"
+          ? content.statusMaybeLabel
+          : content.statusYesLabel;
 
     return (
       <div className="rsvp-form rsvp-summary animate-fade-up delay-2">
@@ -119,11 +140,6 @@ export function RsvpForm({ token, invite, content }: Props) {
       <p className="invitee-name">
         {applyTemplate(content.guestGreeting, { name: invite.full_name })}
       </p>
-      {content.rsvpLeadInvite && !invite.already_final && (
-        <p className="rsvp-lead">
-          {applyTemplate(content.rsvpLeadInvite, { name: invite.full_name })}
-        </p>
-      )}
       {!invite.already_final && (
         <p className="confirm-prompt">{content.confirmPrompt}</p>
       )}
@@ -131,48 +147,13 @@ export function RsvpForm({ token, invite, content }: Props) {
         <p className="rsvp-lead">{content.alreadyConfirmedNote}</p>
       )}
 
-      <fieldset className="status-fieldset">
-        <legend>{content.statusLegend}</legend>
-        <div className="status-options">
-          {(
-            [
-              ["confirmed", content.statusYesLabel],
-              ["declined", content.statusNoLabel],
-            ] as const
-          ).map(([value, label]) => (
-            <label
-              key={value}
-              className={`status-option ${status === value ? "active" : ""}`}
-            >
-              <input
-                type="radio"
-                name="status"
-                value={value}
-                checked={status === value}
-                onChange={() => setStatus(value)}
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      {status !== "declined" && (
-        <div className="field">
-          <label htmlFor="guest_count">{content.guestCountLabel}</label>
-          <select
-            id="guest_count"
-            value={guestCount}
-            onChange={(e) => setGuestCount(Number(e.target.value))}
-          >
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      <RsvpChoiceFields
+        content={content}
+        status={status}
+        guestCount={guestCount}
+        onStatusChange={setStatus}
+        onGuestCountChange={setGuestCount}
+      />
 
       {error && (
         <p className="form-error" role="alert">

@@ -42,6 +42,7 @@ export type SiteContent = {
   statusLegend: string;
   statusYesLabel: string;
   statusNoLabel: string;
+  statusMaybeLabel: string;
   guestCountLabel: string;
   submitRsvpLabel: string;
   alreadyConfirmedNote: string;
@@ -74,6 +75,7 @@ export type SiteContent = {
   waThankYouConfirmed: string;
   waThankYouUpdated: string;
   waThankYouDeclined: string;
+  waThankYouMaybe: string;
   /** Organizer alert on RSVP; use {name} {phone} {status} {guestCount} {notes} */
   organizerNotifyTemplate: string;
   mapsUrl: string;
@@ -282,19 +284,20 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   rsvpTitle: "אישור הגעה",
   rsvpLeadHome: "",
   rsvpHelp: "",
-  rsvpLeadInvite: "שלום {name} - עדכנו את הפרטים שלכם ואשרו הגעה.",
+  rsvpLeadInvite: "",
   confirmPrompt:
     "מצפה בשמחה לבואך למסיבה שלי. כדי להיות ערוכה על הצד הטוב ביותר (קייטרינג, יין די. ג׳יי ועוד) בבקשה אשר/י את הגעתך 🙏🏽♥️💐",
   thankYouConfirmed: "תודה שאישרת את הגעתך. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.",
   thankYouUpdated: "תודה שעדכנת אותנו - נדע להיערך יותר טוב.",
   thankYouDeclined: "תודה על העדכון. נתראה באירוע אחר בקרוב.",
-  thankYouMaybe: "קיבלנו את העדכון. אפשר לחזור ולעדכן בכל רגע.",
+  thankYouMaybe:
+    "קיבלנו את העדכון. כשתדעו — אפשר לחזור בכל רגע ולעדכן את סטטוס ההגעה.",
   thankYouTitle: "תודה, {name}!",
   invalidLinkTitle: "הקישור לא תקין",
   invalidLinkBody:
     "הקישור האישי לא נמצא. אפשר להתחבר מהעמוד הראשי עם מספר הטלפון.",
   invalidLinkHomeHint: "אפשר גם להיכנס דרך התחברות עם מספר טלפון.",
-  footer: "מסיבת פרידה לאיילת · טבעון · ספטמבר 2026",
+  footer: "",
   ctaLabel: "אישור הגעה",
   detailsLinkLabel: "פרטי האירוע",
   viewInviteLabel: "צפייה בהזמנה",
@@ -306,16 +309,17 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   statusLegend: "האם תגיעו?",
   statusYesLabel: "כן, מגיע/ה",
   statusNoLabel: "לא אוכל/ה להגיע",
+  statusMaybeLabel: "עדיין לא יודע/ת",
   guestCountLabel: "כמה תגיעו?",
-  submitRsvpLabel: "שליחת אישור הגעה",
-  alreadyConfirmedNote: "כבר שלחתם אישור. אפשר לעדכן אם משהו השתנה.",
+  submitRsvpLabel: "שליחה",
+  alreadyConfirmedNote: "אלה הפרטים שכבר יש לנו. אפשר לעדכן אם משהו השתנה.",
   updateStatusLabel: "עדכון סטטוס",
   cancelUpdateLabel: "ביטול",
   phoneLabel: "מספר טלפון נייד",
   sendOtpLabel: "שלחו לי קוד ב־WhatsApp",
   otpSentLead: "נשלח קוד אימות ל־WhatsApp",
   codeLabel: "קוד אימות",
-  verifyOtpLabel: "אימות והמשך",
+  verifyOtpLabel: "אימות",
   changePhoneLabel: "שינוי מספר",
   newGuestWelcome: "ברוכים הבאים! מלאו את הפרטים לאישור הגעה.",
   fullNameLabel: "שם מלא",
@@ -336,7 +340,7 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
 לפרטים נוספים:
 {siteUrl}
 
-לעדכון סטטוס ההגעה:
+זה קישור אישי אליכם — לעדכון סטטוס ההגעה:
 {personalLink}
 
 מחכות לראותכם
@@ -344,7 +348,7 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   reminderIntro:
     "ראינו שעדיין לא נרשמת למסיבת הפרידה של איילת 🙏\nנשמח אם תעדכנו את סטטוס ההגעה שלכם בהקדם.",
   reminderSiteLabel: "לפרטים נוספים",
-  reminderLinkLabel: "לעדכון סטטוס ההגעה",
+  reminderLinkLabel: "זה קישור אישי אליכם — לעדכון סטטוס ההגעה",
   reminderOutro: "מחכות לראותכם\nאורטל וכרמל",
   waThankYouConfirmed: `שלום {name},
 
@@ -361,6 +365,12 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   waThankYouDeclined: `שלום {name},
 
 תודה על העדכון. נתראה באירוע אחר בקרוב.`,
+  waThankYouMaybe: `שלום {name},
+
+קיבלנו את העדכון שלך: עדיין לא יודעים.
+כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע ועד יום 5 בספטמבר
+דרך הקישור האישי שלכם:
+{personalLink}`,
   organizerNotifyTemplate: `עדכון אישור הגעה - מסיבת פרידה
 
 שם: {name}
@@ -379,3 +389,63 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   coverImage: "/invite.jpg",
   linksTitle: "איך מגיעים ומשתתפים",
 };
+
+const LEGACY_REMINDER_LINK_LABELS = new Set([
+  "לעדכון סטטוס ההגעה",
+  "לעדכון סטטוס ההגעה שלכם",
+]);
+
+const LEGACY_REMINDER_LINK_LINES = [
+  "לעדכון סטטוס ההגעה:",
+  "לעדכון סטטוס ההגעה שלכם:",
+];
+
+/**
+ * Bring older CMS copies in line with current product copy.
+ * Runs on read so WhatsApp/site pick up migrations without a manual re-save.
+ */
+export function migrateStoredSiteContent(content: SiteContent): SiteContent {
+  const next = { ...content };
+  const personalLinkLabel = DEFAULT_SITE_CONTENT.reminderLinkLabel;
+
+  if (
+    /הקישור הזה אישי/.test(next.rsvpLeadInvite) ||
+    /עדכנו את הפרטים שלכם ואשרו הגעה/.test(next.rsvpLeadInvite)
+  ) {
+    next.rsvpLeadInvite = "";
+  }
+
+  if (LEGACY_REMINDER_LINK_LABELS.has(next.reminderLinkLabel.trim())) {
+    next.reminderLinkLabel = personalLinkLabel;
+  }
+
+  if (next.submitRsvpLabel.trim() === "שליחת אישור הגעה") {
+    next.submitRsvpLabel = DEFAULT_SITE_CONTENT.submitRsvpLabel;
+  }
+
+  if (next.verifyOtpLabel.trim() === "אימות והמשך") {
+    next.verifyOtpLabel = DEFAULT_SITE_CONTENT.verifyOtpLabel;
+  }
+
+  if (next.footer.trim() === "מסיבת פרידה לאיילת · טבעון · ספטמבר 2026") {
+    next.footer = "";
+  }
+
+  if (
+    next.alreadyConfirmedNote.trim() ===
+    "כבר שלחתם אישור. אפשר לעדכן אם משהו השתנה."
+  ) {
+    next.alreadyConfirmedNote = DEFAULT_SITE_CONTENT.alreadyConfirmedNote;
+  }
+
+  for (const oldLine of LEGACY_REMINDER_LINK_LINES) {
+    if (next.reminderTemplate.includes(oldLine)) {
+      next.reminderTemplate = next.reminderTemplate.replaceAll(
+        oldLine,
+        `${personalLinkLabel}:`
+      );
+    }
+  }
+
+  return next;
+}

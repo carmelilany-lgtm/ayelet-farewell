@@ -426,8 +426,7 @@ export async function createImportedGuest(input: {
     invite_token: createInviteToken(),
     full_name: fullName,
     phone,
-    // Guest fills count on RSVP; keep 0 until then.
-    guest_count: 0,
+    guest_count: 1,
     status: "imported",
     final_confirmed_at: null,
     wants_video_blessing: null,

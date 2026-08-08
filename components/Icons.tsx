@@ -87,8 +87,11 @@ export function IconGift({ className }: IconProps) {
 export function IconNav({ className }: IconProps) {
   return (
     <Svg className={className}>
-      <path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z" />
-      <circle cx="12" cy="10" r="2.5" />
+      {/* Waze ghost mark */}
+      <path d="M12 2.8c-4.6 0-8.2 3.5-8.2 7.8 0 2.5 1.2 4.7 3 6.1L6 21.2l3.4-1.9c.8.3 1.7.4 2.6.4 4.6 0 8.2-3.5 8.2-7.9S16.6 2.8 12 2.8Z" />
+      <circle cx="9.2" cy="10.1" r="1.15" fill="currentColor" stroke="none" />
+      <circle cx="14.8" cy="10.1" r="1.15" fill="currentColor" stroke="none" />
+      <path d="M9.1 13.3c.9 1 1.9 1.45 2.9 1.45s2-.45 2.9-1.45" />
     </Svg>
   );
 }
@@ -96,8 +99,10 @@ export function IconNav({ className }: IconProps) {
 export function IconMap({ className }: IconProps) {
   return (
     <Svg className={className}>
-      <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z" />
-      <path d="M9 4v14M15 6v14" />
+      {/* Folded map */}
+      <path d="M9.2 4.2 3.5 6.1v13.2l5.7-1.9 5.6 1.9 5.7-1.9V4.2l-5.7 1.9-5.6-1.9Z" />
+      <path d="M9.2 4.2v13.2M14.8 6.1v13.2" />
+      <circle cx="12" cy="11.2" r="1.7" />
     </Svg>
   );
 }
@@ -105,9 +110,11 @@ export function IconMap({ className }: IconProps) {
 export function IconBit({ className }: IconProps) {
   return (
     <Svg className={className}>
-      <rect x="3" y="6" width="18" height="12" rx="2" />
-      <path d="M3 10h18" />
-      <path d="M8 14h4" />
+      {/* Payment card / Bit transfer */}
+      <rect x="2.8" y="5.5" width="18.4" height="13" rx="2.2" />
+      <path d="M2.8 9.6h18.4" />
+      <path d="M7 14.2h4.2" />
+      <circle cx="16.4" cy="14.2" r="1.15" />
     </Svg>
   );
 }

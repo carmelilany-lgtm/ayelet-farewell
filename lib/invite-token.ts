@@ -36,7 +36,7 @@ export function whatsappShareUrl(token: string, fullName: string, origin?: strin
 לפרטים נוספים:
 ${site}
 
-לעדכון סטטוס ההגעה שלכם:
+זה קישור אישי אליכם — לעדכון סטטוס ההגעה:
 ${link}`;
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }

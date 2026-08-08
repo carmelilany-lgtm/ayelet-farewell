@@ -1,12 +1,8 @@
 import { Countdown } from "@/components/Countdown";
-import {
-  IconBit,
-  IconGift,
-  IconMap,
-  IconMic,
-  IconNav,
-} from "@/components/Icons";
+import { IconGift, IconMic } from "@/components/Icons";
 import { InviteViewer } from "@/components/InviteViewer";
+import { Reveal } from "@/components/Reveal";
+import { SmoothScrollLink } from "@/components/SmoothScrollLink";
 import type { SiteContent } from "@/lib/site-content";
 import { formatProgramTimeLabel } from "@/lib/site-content-defaults";
 
@@ -30,7 +26,7 @@ export function InvitationShell({
         aria-label={content.title}
       >
         <div className="hero-bg" aria-hidden="true" />
-        <div className="hero-content">
+        <div className="hero-content hero-reveal">
           <div className="hero-ornament" aria-hidden="true" />
           {content.banner.trim() ? (
             <p className="personal-banner">{content.banner}</p>
@@ -49,13 +45,13 @@ export function InvitationShell({
           />
           {!compact && (
             <div className="hero-actions">
-              <a className="hero-cta" href="#rsvp">
+              <SmoothScrollLink className="hero-cta" href="#rsvp">
                 {content.ctaLabel}
-              </a>
+              </SmoothScrollLink>
               <div className="hero-secondary">
-                <a className="hero-text-link" href="#details">
+                <SmoothScrollLink className="hero-text-link" href="#details">
                   {content.detailsLinkLabel}
-                </a>
+                </SmoothScrollLink>
                 <span className="hero-sep" aria-hidden="true">
                   ·
                 </span>
@@ -69,7 +65,12 @@ export function InvitationShell({
         </div>
       </section>
 
-      <section id="details" className="program-section" aria-labelledby="program-title">
+      <Reveal
+        as="section"
+        className="program-section"
+        id="details"
+        aria-labelledby="program-title"
+      >
         <div className="program-layout">
           <div className="program-panel">
             <h2 id="program-title" className="section-title">
@@ -78,7 +79,10 @@ export function InvitationShell({
 
             <ol className="program-schedule">
               {content.programItems.map((item, index) => (
-                <li key={`${item.time}-${item.title}-${index}`} className="schedule-row">
+                <li
+                  key={`${item.time}-${item.title}-${index}`}
+                  className="schedule-row"
+                >
                   <time
                     className="schedule-time"
                     dateTime={item.time || undefined}
@@ -91,7 +95,7 @@ export function InvitationShell({
             </ol>
 
             <div className="evening-notes">
-              <p className="evening-note">
+              <p className="evening-note soft">
                 <IconMic className="evening-note-icon" />
                 <span>{content.hosts}</span>
               </p>
@@ -112,8 +116,15 @@ export function InvitationShell({
                       target="_blank"
                       rel="noreferrer"
                     >
-                      <IconNav className="link-icon" />
-                      {content.wazeLabel || "Waze"}
+                      <img
+                        className="link-logo"
+                        src="/logos/waze.png"
+                        alt=""
+                        width={18}
+                        height={18}
+                        decoding="async"
+                      />
+                      <span>{content.wazeLabel || "Waze"}</span>
                     </a>
                   )}
                   {content.mapsUrl && (
@@ -123,8 +134,15 @@ export function InvitationShell({
                       target="_blank"
                       rel="noreferrer"
                     >
-                      <IconMap className="link-icon" />
-                      {content.mapsLabel || "Maps"}
+                      <img
+                        className="link-logo link-logo-maps"
+                        src="/logos/google-maps.png?v=3"
+                        alt=""
+                        width={18}
+                        height={18}
+                        decoding="async"
+                      />
+                      <span>{content.mapsLabel || "Maps"}</span>
                     </a>
                   )}
                   {content.bitUrl && (
@@ -134,25 +152,46 @@ export function InvitationShell({
                       target="_blank"
                       rel="noreferrer"
                     >
-                      <IconBit className="link-icon" />
-                      {content.bitLabel || "ביט"}
+                      <img
+                        className="link-logo"
+                        src="/logos/bit.png"
+                        alt=""
+                        width={18}
+                        height={18}
+                        decoding="async"
+                      />
+                      <span>{content.bitLabel || "ביט"}</span>
                     </a>
                   )}
                 </div>
               </div>
             )}
           </div>
-          <div
-            className="program-banner"
-            role="img"
-            aria-label={content.place}
-          />
+          <div className="program-banner-wrap">
+            <div
+              className="program-banner"
+              role="img"
+              aria-label={content.place}
+            />
+          </div>
         </div>
-      </section>
+      </Reveal>
 
       {children}
 
-      <footer className="site-footer">{content.footer}</footer>
+      <Reveal as="footer" className="site-footer">
+        {content.footer ? <p className="site-footer-copy">{content.footer}</p> : null}
+        <p className="site-footer-credit">
+          עיצוב ופיתוח:{" "}
+          <a
+            href="https://cimedia.co.il"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Cimedia
+          </a>
+        </p>
+      </Reveal>
     </main>
   );
 }

@@ -40,7 +40,7 @@ export default function RootLayout({
     <html
       lang="he"
       dir="rtl"
-      className={`${openSans.variable} h-full`}
+      className={`${openSans.variable} min-h-full`}
     >
       <body className="min-h-full antialiased">{children}</body>
     </html>

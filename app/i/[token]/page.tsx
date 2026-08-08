@@ -1,5 +1,6 @@
 import { InvitationShell } from "@/components/InvitationShell";
 import { InvitePageClient } from "@/components/InvitePageClient";
+import { Reveal } from "@/components/Reveal";
 import { getSiteContent } from "@/lib/site-content";
 import { getInviteByToken } from "@/lib/store";
 
@@ -18,7 +19,12 @@ export default async function InvitePage({ params }: Props) {
 
   return (
     <InvitationShell content={content} compact>
-      <section id="rsvp" className="rsvp-section" aria-labelledby="rsvp-title">
+      <Reveal
+        as="section"
+        className="rsvp-section"
+        id="rsvp"
+        aria-labelledby="rsvp-title"
+      >
         <div className="section">
           <h2 id="rsvp-title" className="section-title">
             {content.rsvpTitle}
@@ -33,10 +39,14 @@ export default async function InvitePage({ params }: Props) {
               </p>
             </div>
           ) : (
-            <InvitePageClient token={token} invite={invite} content={content} />
+            <InvitePageClient
+              token={token}
+              invite={invite}
+              content={content}
+            />
           )}
         </div>
-      </section>
+      </Reveal>
     </InvitationShell>
   );
 }

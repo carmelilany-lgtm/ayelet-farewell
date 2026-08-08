@@ -79,7 +79,57 @@ export async function sendWhatsAppText(
 }
 
 export function organizerNotifyPhone(): string {
-  return (
-    process.env.ORGANIZER_NOTIFY_PHONE?.trim() || "+972544854584"
-  );
+  return organizerNotifyPhones()[0] || "+972544854584";
+}
+
+/** One or more numbers: comma / semicolon / whitespace separated. */
+export function organizerNotifyPhones(): string[] {
+  const raw =
+    process.env.ORGANIZER_NOTIFY_PHONES?.trim() ||
+    process.env.ORGANIZER_NOTIFY_PHONE?.trim() ||
+    "+972544854584";
+
+  const phones = raw
+    .split(/[,;\s]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  return [...new Set(phones)];
+}
+
+async function sendWhatsAppTextWithRetry(
+  phone: string,
+  message: string,
+  attempts = 2
+): Promise<GreenSendResult> {
+  let last: GreenSendResult = { ok: false, error: "לא נשלח" };
+  for (let i = 0; i < attempts; i++) {
+    last = await sendWhatsAppText(phone, message);
+    if (last.ok) return last;
+    if (i < attempts - 1) {
+      await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+    }
+  }
+  return last;
+}
+
+/** Notify every configured organizer number (sequential, with light retry). */
+export async function notifyOrganizersWhatsApp(
+  message: string
+): Promise<{ sent: number; failed: string[] }> {
+  const phones = organizerNotifyPhones();
+  let sent = 0;
+  const failed: string[] = [];
+
+  for (const phone of phones) {
+    const result = await sendWhatsAppTextWithRetry(phone, message);
+    if (result.ok) {
+      sent += 1;
+    } else {
+      failed.push(`${phone}: ${result.error}`);
+      console.error("Organizer notify failed", phone, result.error);
+    }
+  }
+
+  return { sent, failed };
 }

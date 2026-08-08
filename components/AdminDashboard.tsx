@@ -21,7 +21,7 @@ const statusLabel: Record<Rsvp["status"], string> = {
   imported: "ממתין לאישור סופי",
   confirmed: "אושר סופית",
   declined: "לא מגיע/ה",
-  maybe: "לא בטוח/ה",
+  maybe: "עדיין לא יודע/ת",
 };
 
 type Tab = "guests" | "content";
@@ -747,6 +747,20 @@ export function AdminDashboard() {
     setContent((c) => ({ ...c, [key]: value }));
   }
 
+  function restoreReminderDefaults() {
+    setDirty(true);
+    setInfo("שוחזרה תבנית התזכורת לברירת מחדל — לחצו שמירה");
+    setContent((c) => ({
+      ...c,
+      reminderTemplate: DEFAULT_SITE_CONTENT.reminderTemplate,
+      reminderIntro: DEFAULT_SITE_CONTENT.reminderIntro,
+      reminderSiteLabel: DEFAULT_SITE_CONTENT.reminderSiteLabel,
+      reminderLinkLabel: DEFAULT_SITE_CONTENT.reminderLinkLabel,
+      reminderOutro: DEFAULT_SITE_CONTENT.reminderOutro,
+      rsvpLeadInvite: "",
+    }));
+  }
+
   function fieldValue(key: keyof SiteContent) {
     if (key === "programItems") return formatProgramLines(content.programItems);
     return String(content[key] ?? "");
@@ -783,7 +797,9 @@ export function AdminDashboard() {
                     ? "אושר"
                     : draft.status === "declined"
                       ? "לא מגיע/ה"
-                      : "ממתין לאישור";
+                      : draft.status === "maybe"
+                        ? "עדיין לא יודע/ת"
+                        : "ממתין לאישור";
                 const displayCount =
                   draft.status === "declined" ? 0 : draft.guest_count;
                 return (
@@ -797,9 +813,7 @@ export function AdminDashboard() {
                     </td>
                     <td data-label="אורחים">
                       {manualPending ? (
-                        <span className="admin-count-pending">
-                          ימולא ע״י האורח
-                        </span>
+                        <span>{Math.max(displayCount || 1, 1)}</span>
                       ) : editing ? (
                         <select
                           className="admin-inline-select"
@@ -845,6 +859,7 @@ export function AdminDashboard() {
                         >
                           <option value="imported">ממתין לאישור</option>
                           <option value="confirmed">אושר</option>
+                          <option value="maybe">עדיין לא יודע/ת</option>
                           <option value="declined">לא מגיע/ה</option>
                         </select>
                       ) : (
@@ -997,6 +1012,7 @@ export function AdminDashboard() {
           <div className="admin-stats">
             <Stat label="סה״כ" value={summary.total_records} />
             <Stat label="אושרו סופית" value={summary.confirmed} />
+            <Stat label="עדיין לא יודע/ת" value={summary.maybe} />
             <Stat label="ממתינים" value={summary.imported_pending} />
             <Stat
               label="טרם נרשמו (ידני)"
@@ -1073,12 +1089,22 @@ export function AdminDashboard() {
           <div className="admin-guest-accordions content-accordion-list">
             <Accordion
               title="הוספת אורח ידנית"
-              hint="שם + טלפון"
+              hint="וואטסאפ או טופס"
               defaultOpen={false}
             >
               <p className="admin-guest-accordion-lead">
-                שם ומספר טלפון בלבד — למי שטרם נרשם. לא ניתן להוסיף מי שכבר
-                אישר/ה הגעה.
+                הוספה דרך וואטסאפ (מארגן בלבד): שלחו למספר של המערכת (Green API)
+                הודעה לפי התבנית — אדם אחד בכל פעם. תקבלו אישור קצר שהאורח נוסף
+                לרשימה הידנית; האורח לא מקבל הודעה.
+              </p>
+              <pre className="admin-wa-template" dir="rtl">
+                {`אורח חדש
+שם: ישראל ישראלי
+טלפון: 054-1234567`}
+              </pre>
+              <p className="admin-guest-accordion-lead">
+                אפשר גם כאן בטופס — שם ומספר בלבד, למי שטרם נרשם. לא ניתן להוסיף
+                מי שכבר אישר/ה הגעה.
               </p>
               <form
                 className="admin-add-guest"
@@ -1150,7 +1176,7 @@ export function AdminDashboard() {
 
             <Accordion
               title={`רשימת אורחים (${registeredTotal})`}
-              hint="אושרו / יובאו / סירבו"
+              hint="אושרו / לא יודעים / יובאו / סירבו"
               defaultOpen
               openSignal={
                 guestSearch.trim() && registeredRsvps.length > 0
@@ -1258,7 +1284,7 @@ export function AdminDashboard() {
           {contentSection === "links" && (
             <Panel
               title="קישורים"
-              description="טקסט וכתובת לכל כפתור - קישור ריק מסתיר את הכפתור"
+              description="טקסט וכתובת לכל קישור · אייקונים (Waze / Maps / ביט) מוצגים אוטומטית · קישור ריק מסתיר את הפריט"
             >
               <Fields
                 fieldValue={fieldValue}
@@ -1294,7 +1320,7 @@ export function AdminDashboard() {
           {contentSection === "rsvp" && (
             <Panel
               title="אישור הגעה"
-              description="טקסטים בטופס, התחברות והודעות סטטוס"
+              description="טקסטים בטופס, התחברות ואפשרויות סטטוס (כן / עדיין לא יודע/ת / לא). אזכור «קישור אישי» עובר בהודעת WhatsApp, לא בדף"
             >
               <Accordion title="טקסטים וטופס">
                 <Fields
@@ -1309,15 +1335,8 @@ export function AdminDashboard() {
                       rows: 4,
                     },
                     {
-                      key: "rsvpLeadInvite",
-                      label: "הסבר בקישור אישי",
-                      multiline: true,
-                      rows: 2,
-                      hint: "אפשר להשתמש ב־{name}",
-                    },
-                    {
                       key: "alreadyConfirmedNote",
-                      label: "הערה למי שכבר אישר",
+                      label: "הערה למי שכבר אישר (סיכום פרטים)",
                       multiline: true,
                       rows: 2,
                     },
@@ -1326,6 +1345,7 @@ export function AdminDashboard() {
                     { key: "guestGreeting", label: "ברכת שלום", hint: "עם {name}" },
                     { key: "statusLegend", label: "שאלת הגעה" },
                     { key: "statusYesLabel", label: "אפשרות: כן" },
+                    { key: "statusMaybeLabel", label: "אפשרות: עדיין לא יודע/ת" },
                     { key: "statusNoLabel", label: "אפשרות: לא" },
                     { key: "guestCountLabel", label: "תווית מספר אורחים" },
                     { key: "submitRsvpLabel", label: "כפתור שליחה" },
@@ -1388,6 +1408,12 @@ export function AdminDashboard() {
                     multiline: true,
                     rows: 3,
                   },
+                  {
+                    key: "thankYouMaybe",
+                    label: "עדיין לא יודע/ת",
+                    multiline: true,
+                    rows: 3,
+                  },
                 ]}
               />
             </Panel>
@@ -1396,7 +1422,7 @@ export function AdminDashboard() {
           {contentSection === "whatsapp" && (
             <Panel
               title="הודעות WhatsApp"
-              description="כל הטקסט ניתן לעריכה. הקישורים והפרטים הדינמיים מוחלפים אוטומטית לפי הרמזים. תזכורת נשלחת ידנית מלשונית האורחים"
+              description="בתזכורת מומלץ לציין שזה קישור אישי. ערכים ישנים ב־CMS מתעדכנים אוטומטית בקריאה; לשמירה קבועה — שחזרו לברירת מחדל ושמרו, או ערכו ידנית"
             >
               <div className="content-preview">
                 <p className="content-preview-label">
@@ -1417,6 +1443,15 @@ export function AdminDashboard() {
                     )}
                 </pre>
               </div>
+              <div className="content-restore-row">
+                <button
+                  type="button"
+                  className="admin-btn ghost"
+                  onClick={restoreReminderDefaults}
+                >
+                  שחזור תבנית תזכורת לברירת מחדל
+                </button>
+              </div>
               <Accordion title="עריכת הודעות" defaultOpen>
                 <Fields
                   fieldValue={fieldValue}
@@ -1427,7 +1462,7 @@ export function AdminDashboard() {
                       label: "תזכורת — טרם נרשמו / עדכון סטטוס",
                       multiline: true,
                       rows: 12,
-                      hint: "{name} {dateTime} {place} · {siteUrl} {personalLink}",
+                      hint: "{name} {dateTime} {place} · {siteUrl} {personalLink} · כולל ניסוח «קישור אישי»",
                     },
                     {
                       key: "otpMessageTemplate",
@@ -1456,6 +1491,13 @@ export function AdminDashboard() {
                       multiline: true,
                       rows: 5,
                       hint: "{name} · בלי «מחכים לראותך»",
+                    },
+                    {
+                      key: "waThankYouMaybe",
+                      label: "תודה - עדיין לא יודע/ת",
+                      multiline: true,
+                      rows: 6,
+                      hint: "{name} · {personalLink}",
                     },
                     {
                       key: "organizerNotifyTemplate",

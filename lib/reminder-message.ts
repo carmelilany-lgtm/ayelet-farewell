@@ -1,5 +1,6 @@
 import {
   applyTemplate,
+  DEFAULT_SITE_CONTENT,
   sanitizeDeclinedWaTemplate,
   type SiteContent,
 } from "./site-content-defaults";
@@ -16,7 +17,8 @@ export { CONFIRM_PROMPT } from "./copy";
 function statusLabelForOrganizer(status: string): string {
   if (status === "confirmed") return "מגיע/ה ✅";
   if (status === "declined") return "לא מגיע/ה ❌";
-  return "לא בטוח/ה 🤔";
+  if (status === "maybe") return "עדיין לא יודע/ת 🤔";
+  return "ממתין לאישור";
 }
 
 function waThankYouTemplate(
@@ -27,7 +29,12 @@ function waThankYouTemplate(
     return sanitizeDeclinedWaTemplate(content.waThankYouDeclined);
   }
   if (kind === "updated") return content.waThankYouUpdated;
-  // confirmed + maybe (maybe removed from guest UI)
+  if (kind === "maybe") {
+    return (
+      content.waThankYouMaybe?.trim() ||
+      DEFAULT_SITE_CONTENT.waThankYouMaybe
+    );
+  }
   return content.waThankYouConfirmed;
 }
 
@@ -49,13 +56,37 @@ export async function buildReminderMessage(opts: {
   });
 }
 
+export function buildOrganizerAddGuestSuccess(fullName: string): string {
+  return `${fullName} נוסף/ה לרשימה הידנית ✅`;
+}
+
+export function buildOrganizerAddGuestFailure(reason: string): string {
+  return `לא הצלחתי להוסיף אורח ❌
+
+${reason}
+
+שלחו שוב לפי התבנית:
+אורח חדש
+שם: ישראל ישראלי
+טלפון: 054-1234567`;
+}
+
 export async function buildGuestThankYouWhatsApp(opts: {
   fullName: string;
   kind: ThankYouKind;
+  inviteToken?: string;
+  origin?: string;
 }): Promise<string> {
   const content = await getSiteContent();
+  const siteUrl = siteAbsoluteUrl(opts.origin);
+  const personalLink = opts.inviteToken
+    ? inviteAbsoluteUrl(opts.inviteToken, siteUrl)
+    : siteUrl;
+
   return applyTemplate(waThankYouTemplate(content, opts.kind), {
     name: opts.fullName,
+    personalLink,
+    siteUrl,
   });
 }
 

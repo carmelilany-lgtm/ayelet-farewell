@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { OtpCodeInput } from "@/components/OtpCodeInput";
+import { RsvpChoiceFields } from "@/components/RsvpChoiceFields";
 import { applyTemplate, type SiteContent } from "@/lib/site-content-defaults";
 import { formatPhoneDisplay, phoneValidationError } from "@/lib/phone";
 import {
@@ -43,7 +45,6 @@ export function PhoneAuthRsvp({ content }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [doneKind, setDoneKind] = useState<ThankYouKind | null>(null);
-  const [doneName, setDoneName] = useState("");
   const [lastOtpPhone, setLastOtpPhone] = useState<string | null>(null);
   const [otpCooldownUntil, setOtpCooldownUntil] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -52,7 +53,13 @@ export function PhoneAuthRsvp({ content }: Props) {
     setGuest(next);
     setFullName(next.full_name || "");
     setGuestCount(Math.max(next.guest_count || 1, 1));
-    setStatus(next.status === "declined" ? "declined" : "confirmed");
+    setStatus(
+      next.status === "declined" ||
+        next.status === "maybe" ||
+        next.status === "confirmed"
+        ? next.status
+        : "confirmed"
+    );
     // Summary + "עדכון סטטוס" only after a prior confirmation.
     setEditing(!next.already_final);
     setStep("confirm");
@@ -164,7 +171,10 @@ export function PhoneAuthRsvp({ content }: Props) {
         setError(data.error || "שגיאה בשמירה");
         return;
       }
-      setDoneName(isNew ? name : guest.full_name);
+      if (data.unchanged) {
+        setEditing(false);
+        return;
+      }
       setDoneKind(
         resolveThankYouKind({
           previousStatus: guest.status,
@@ -189,7 +199,6 @@ export function PhoneAuthRsvp({ content }: Props) {
     setCode("");
     setDone(false);
     setDoneKind(null);
-    setDoneName("");
   }
 
   if (loading) {
@@ -199,12 +208,20 @@ export function PhoneAuthRsvp({ content }: Props) {
   if (done && doneKind) {
     return (
       <div className="success-panel animate-fade-up" role="status">
-        <p className="success-title">
-          {applyTemplate(content.thankYouTitle, { name: doneName })}
-        </p>
         <p className="success-body">
           {thankYouMessage(doneKind, content)}
         </p>
+        <button
+          type="button"
+          className="text-link-btn"
+          onClick={() => {
+            setDone(false);
+            setDoneKind(null);
+            setEditing(true);
+          }}
+        >
+          {content.updateStatusLabel}
+        </button>
       </div>
     );
   }
@@ -248,47 +265,18 @@ export function PhoneAuthRsvp({ content }: Props) {
   if (step === "code") {
     return (
       <form className="rsvp-form otp-step animate-fade-up" onSubmit={verifyOtp}>
-        <div className="otp-ornament" aria-hidden="true" />
         <p className="otp-kicker">{content.codeLabel}</p>
         <p className="otp-lead">{content.otpSentLead}</p>
         <p className="otp-phone" dir="ltr">
           {formatPhoneDisplay(phone)}
         </p>
 
-        <div className="otp-code-field" dir="ltr">
-          <label htmlFor="code" className="sr-only">
-            {content.codeLabel}
-          </label>
-          <div className="otp-slots" aria-hidden="true" dir="ltr">
-            {Array.from({ length: 6 }, (_, i) => {
-              const digit = code[i] ?? "";
-              const active = code.length === i;
-              return (
-                <span
-                  key={i}
-                  className={`otp-slot${digit ? " filled" : ""}${active ? " active" : ""}`}
-                >
-                  {digit}
-                </span>
-              );
-            })}
-          </div>
-          <input
-            id="code"
-            className="otp-input-overlay"
-            inputMode="numeric"
-            dir="ltr"
-            required
-            autoComplete="one-time-code"
-            autoFocus
-            maxLength={6}
-            value={code}
-            aria-label={content.codeLabel}
-            onChange={(e) =>
-              setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-            }
-          />
-        </div>
+        <OtpCodeInput
+          value={code}
+          onChange={setCode}
+          label={content.codeLabel}
+          disabled={busy}
+        />
 
         {error && (
           <p className="form-error otp-error" role="alert">
@@ -328,7 +316,11 @@ export function PhoneAuthRsvp({ content }: Props) {
 
   if (!isNew && guest.already_final && !editing) {
     const statusText =
-      status === "declined" ? content.statusNoLabel : content.statusYesLabel;
+      status === "declined"
+        ? content.statusNoLabel
+        : status === "maybe"
+          ? content.statusMaybeLabel
+          : content.statusYesLabel;
 
     return (
       <div className="rsvp-form rsvp-summary animate-fade-up">
@@ -398,49 +390,13 @@ export function PhoneAuthRsvp({ content }: Props) {
         <p className="rsvp-lead">{content.alreadyConfirmedNote}</p>
       )}
 
-      <fieldset className="status-fieldset">
-        <legend>{content.statusLegend}</legend>
-        <div className="status-options">
-          {(
-            [
-              ["confirmed", content.statusYesLabel],
-              ["declined", content.statusNoLabel],
-            ] as const
-          ).map(([value, label]) => (
-            <label
-              key={value}
-              className={`status-option ${status === value ? "active" : ""}`}
-            >
-              <input
-                type="radio"
-                name="status"
-                value={value}
-                checked={status === value}
-                onChange={() => setStatus(value)}
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      {status !== "declined" && (
-        <div className="field">
-          <label htmlFor="guest_count">{content.guestCountLabel}</label>
-          <select
-            id="guest_count"
-            value={guestCount}
-            required
-            onChange={(e) => setGuestCount(Number(e.target.value))}
-          >
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      <RsvpChoiceFields
+        content={content}
+        status={status}
+        guestCount={guestCount}
+        onStatusChange={setStatus}
+        onGuestCountChange={setGuestCount}
+      />
 
       {error && (
         <p className="form-error" role="alert">
@@ -456,7 +412,13 @@ export function PhoneAuthRsvp({ content }: Props) {
           type="button"
           className="text-link-btn"
           onClick={() => {
-            setStatus(guest.status === "declined" ? "declined" : "confirmed");
+            setStatus(
+              guest.status === "declined" ||
+                guest.status === "maybe" ||
+                guest.status === "confirmed"
+                ? guest.status
+                : "confirmed"
+            );
             setGuestCount(Math.max(guest.guest_count || 1, 1));
             setError(null);
             setEditing(false);

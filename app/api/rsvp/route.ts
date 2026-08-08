@@ -1,9 +1,6 @@
 import { z } from "zod";
 import { parseGuestCookie } from "@/lib/guest-session";
-import {
-  organizerNotifyPhone,
-  sendWhatsAppText,
-} from "@/lib/green-api";
+import { notifyOrganizersWhatsApp, sendWhatsAppText } from "@/lib/green-api";
 import {
   buildGuestThankYouWhatsApp,
   buildOrganizerConfirmMessage,
@@ -17,6 +14,7 @@ import {
   updateRsvpByToken,
   upsertRsvpByPhone,
 } from "@/lib/store";
+import { isUnchangedRsvp } from "@/lib/thank-you";
 import type { Rsvp } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -54,9 +52,9 @@ async function notifyOrganizer(rsvp: Rsvp) {
     status: rsvp.status,
     notes: rsvp.notes,
   });
-  const result = await sendWhatsAppText(organizerNotifyPhone(), message);
-  if (!result.ok) {
-    console.error("Organizer notify failed", result.error);
+  const result = await notifyOrganizersWhatsApp(message);
+  if (result.sent === 0) {
+    console.error("Organizer notify: no messages sent", result.failed);
   }
 }
 
@@ -76,12 +74,23 @@ async function notifyGuestThankYou(
   const message = await buildGuestThankYouWhatsApp({
     fullName: rsvp.full_name,
     kind,
+    inviteToken: rsvp.invite_token,
   });
 
   const result = await sendWhatsAppText(rsvp.phone, message);
   if (!result.ok) {
     console.error("Guest thank-you WhatsApp failed", result.error);
   }
+}
+
+function publicInvite(full: Rsvp) {
+  return {
+    full_name: full.full_name,
+    guest_count: full.guest_count,
+    status: full.status,
+    notes: full.notes,
+    already_final: true,
+  };
 }
 
 export async function GET(request: Request) {
@@ -149,6 +158,23 @@ export async function POST(request: Request) {
           guest_count: before.guest_count,
         };
       }
+
+      if (
+        before &&
+        isUnchangedRsvp({
+          previousStatus: before.status,
+          previousGuestCount: before.guest_count,
+          nextStatus: parsed.data.status,
+          nextGuestCount: count,
+        })
+      ) {
+        return Response.json({
+          ok: true,
+          unchanged: true,
+          invite: publicInvite(before),
+        });
+      }
+
       const invite = await updateRsvpByToken(parsed.data.token, {
         guest_count: count,
         status: parsed.data.status,
@@ -172,6 +198,24 @@ export async function POST(request: Request) {
           guest_count: before.guest_count,
         };
       }
+
+      if (
+        before &&
+        !parsed.data.full_name &&
+        isUnchangedRsvp({
+          previousStatus: before.status,
+          previousGuestCount: before.guest_count,
+          nextStatus: parsed.data.status,
+          nextGuestCount: count,
+        })
+      ) {
+        return Response.json({
+          ok: true,
+          unchanged: true,
+          invite: publicInvite(before),
+        });
+      }
+
       const existing = await updateRsvpByPhone(sessionPhone, {
         guest_count: count,
         status: parsed.data.status,
@@ -207,23 +251,16 @@ export async function POST(request: Request) {
     }
 
     if (full) {
-      await Promise.all([
-        notifyOrganizer(full),
-        notifyGuestThankYou(full, previous),
-      ]);
+      // Sequential: organizers first, then guest — avoids Green API dropping
+      // a concurrent second send when both fire at once.
+      await notifyOrganizer(full);
+      await notifyGuestThankYou(full, previous);
     }
 
     return Response.json({
       ok: true,
-      invite: full
-        ? {
-            full_name: full.full_name,
-            guest_count: full.guest_count,
-            status: full.status,
-            notes: full.notes,
-            already_final: true,
-          }
-        : null,
+      unchanged: false,
+      invite: full ? publicInvite(full) : null,
     });
   } catch (err) {
     console.error("RSVP update failed", err);
