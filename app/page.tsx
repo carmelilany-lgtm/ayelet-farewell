@@ -18,6 +18,12 @@ export default async function HomePage() {
             lead={content.rsvpLeadHome}
             help={content.rsvpHelp}
             confirmPrompt={content.confirmPrompt}
+            thankYou={{
+              thankYouConfirmed: content.thankYouConfirmed,
+              thankYouUpdated: content.thankYouUpdated,
+              thankYouDeclined: content.thankYouDeclined,
+              thankYouMaybe: content.thankYouMaybe,
+            }}
           />
         </div>
       </section>

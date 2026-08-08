@@ -1,5 +1,4 @@
-import { inviteAbsoluteUrl } from "./invite-token";
-import { CONFIRM_PROMPT } from "./copy";
+import { inviteAbsoluteUrl, siteAbsoluteUrl } from "./invite-token";
 import { getSiteContent } from "./site-content";
 
 export { CONFIRM_PROMPT } from "./copy";
@@ -10,33 +9,20 @@ export async function buildReminderMessage(opts: {
   origin?: string;
 }): Promise<string> {
   const content = await getSiteContent();
-  const siteUrl =
-    opts.origin?.replace(/\/$/, "") ||
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
-    "https://ayelet-farewell.vercel.app";
+  const siteUrl = siteAbsoluteUrl(opts.origin);
   const personalLink = inviteAbsoluteUrl(opts.inviteToken, siteUrl);
-  const program = content.programItems.map((item) => `• ${item}`).join("\n");
 
   return `שלום ${opts.fullName},
 
 ${content.reminderIntro}
 
-${CONFIRM_PROMPT}
-
 📅 ${content.dateTime}
 📍 ${content.place}
 
-${content.programTitle}:
-${program}
-
-${content.hosts}
-
-${content.giftNote}
-
-לכניסה ואישור סופי — התחברו עם מספר הטלפון שלכם באתר:
+${content.reminderSiteLabel}:
 ${siteUrl}
 
-או דרך הקישור האישי:
+${content.reminderLinkLabel}:
 ${personalLink}
 
 ${content.reminderOutro}`;

@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 import { CONFIRM_PROMPT } from "@/lib/copy";
+import {
+  resolveThankYouKind,
+  thankYouMessage,
+  type ThankYouKind,
+  type ThankYouMessages,
+} from "@/lib/thank-you";
 import type { PublicInviteView, RsvpStatus } from "@/lib/types";
 
 type Status = Exclude<RsvpStatus, "imported">;
@@ -11,9 +17,23 @@ type Props = {
   invite: PublicInviteView;
   lead?: string;
   confirmPrompt?: string;
+  thankYou?: ThankYouMessages;
 };
 
-export function RsvpForm({ token, invite, lead, confirmPrompt }: Props) {
+const DEFAULT_THANK_YOU: ThankYouMessages = {
+  thankYouConfirmed: "תודה שאישרת את הגעתך. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.",
+  thankYouUpdated: "תודה שעדכנת אותנו — נדע להיערך יותר טוב.",
+  thankYouDeclined: "תודה על העדכון. נתראה באירוע אחר בקרוב.",
+  thankYouMaybe: "קיבלנו את העדכון. אפשר לחזור ולעדכן בכל רגע.",
+};
+
+export function RsvpForm({
+  token,
+  invite,
+  lead,
+  confirmPrompt,
+  thankYou = DEFAULT_THANK_YOU,
+}: Props) {
   const initialStatus: Status =
     invite.status === "imported" ? "confirmed" : (invite.status as Status);
 
@@ -21,16 +41,10 @@ export function RsvpForm({ token, invite, lead, confirmPrompt }: Props) {
     Math.max(invite.guest_count || 1, 1)
   );
   const [status, setStatus] = useState<Status>(initialStatus);
-  const [notes, setNotes] = useState(invite.notes || "");
-  const [video, setVideo] = useState(invite.wants_video_blessing || "");
-  const [speak, setSpeak] = useState(invite.wants_to_speak || "");
-  const [excitement, setExcitement] = useState(
-    invite.excitement ? String(invite.excitement) : ""
-  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const [doneStatus, setDoneStatus] = useState<Status | null>(null);
+  const [doneKind, setDoneKind] = useState<ThankYouKind | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,10 +58,6 @@ export function RsvpForm({ token, invite, lead, confirmPrompt }: Props) {
           token,
           guest_count: guestCount,
           status,
-          notes: notes.trim() || null,
-          wants_video_blessing: video.trim() || null,
-          wants_to_speak: speak.trim() || null,
-          excitement: excitement ? Number(excitement) : null,
         }),
       });
       const data = await res.json();
@@ -55,7 +65,14 @@ export function RsvpForm({ token, invite, lead, confirmPrompt }: Props) {
         setError(data.error || "שגיאה בשליחה");
         return;
       }
-      setDoneStatus(status);
+      setDoneKind(
+        resolveThankYouKind({
+          previousStatus: invite.status,
+          previousGuestCount: invite.guest_count,
+          nextStatus: status,
+          nextGuestCount: guestCount,
+        })
+      );
       setDone(true);
     } catch {
       setError("בעיית רשת. נסו שוב.");
@@ -64,18 +81,13 @@ export function RsvpForm({ token, invite, lead, confirmPrompt }: Props) {
     }
   }
 
-  if (done) {
-    const message =
-      doneStatus === "declined"
-        ? "עדכנו שלא תוכלו להגיע. תודה שעדכנתם — נתראה בהזדמנות אחרת."
-        : doneStatus === "maybe"
-          ? "קיבלנו את העדכון. אפשר לחזור לקישור האישי בכל רגע ולעדכן."
-          : "האישור הסופי התקבל. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.";
-
+  if (done && doneKind) {
     return (
       <div className="success-panel animate-fade-up" role="status">
         <p className="success-title">תודה, {invite.full_name}!</p>
-        <p className="success-body">{message}</p>
+        <p className="success-body">
+          {thankYouMessage(doneKind, thankYou)}
+        </p>
       </div>
     );
   }
@@ -140,58 +152,6 @@ export function RsvpForm({ token, invite, lead, confirmPrompt }: Props) {
           </select>
         </div>
       )}
-
-      <div className="field">
-        <label htmlFor="video">הקלטה מצולמת לברכה?</label>
-        <select
-          id="video"
-          value={video}
-          onChange={(e) => setVideo(e.target.value)}
-        >
-          <option value="">לא צוין</option>
-          <option value="כן, אשמח">כן, אשמח</option>
-          <option value="לא, תודה">לא, תודה</option>
-        </select>
-      </div>
-
-      <div className="field">
-        <label htmlFor="speak">לברך / לשאת דברים באירוע?</label>
-        <select
-          id="speak"
-          value={speak}
-          onChange={(e) => setSpeak(e.target.value)}
-        >
-          <option value="">לא צוין</option>
-          <option value="כן">כן</option>
-          <option value="לא">לא</option>
-        </select>
-      </div>
-
-      <div className="field">
-        <label htmlFor="excitement">כמה את/ה נרגש/ת? (1–5)</label>
-        <select
-          id="excitement"
-          value={excitement}
-          onChange={(e) => setExcitement(e.target.value)}
-        >
-          <option value="">לא צוין</option>
-          {[1, 2, 3, 4, 5].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="field">
-        <label htmlFor="notes">הערות / בקשות מיוחדות</label>
-        <textarea
-          id="notes"
-          rows={3}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-      </div>
 
       {error && (
         <p className="form-error" role="alert">

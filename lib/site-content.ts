@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import {
   DEFAULT_SITE_CONTENT,
+  normalizeProgramItems,
   type SiteContent,
 } from "./site-content-defaults";
 import { getSupabaseAdmin, hasSupabaseConfig } from "./supabase";
@@ -13,10 +14,9 @@ function mergeContent(partial: Partial<SiteContent> | null): SiteContent {
   const base = { ...DEFAULT_SITE_CONTENT, ...(partial || {}) };
   return {
     ...base,
-    programItems:
-      Array.isArray(partial?.programItems) && partial!.programItems!.length
-        ? partial!.programItems!.map((s) => String(s).trim()).filter(Boolean)
-        : DEFAULT_SITE_CONTENT.programItems,
+    programItems: normalizeProgramItems(
+      partial?.programItems ?? DEFAULT_SITE_CONTENT.programItems
+    ),
   };
 }
 

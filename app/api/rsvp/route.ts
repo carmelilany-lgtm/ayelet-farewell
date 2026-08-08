@@ -10,13 +10,15 @@ import {
   getRsvpByToken,
   updateRsvpByPhone,
   updateRsvpByToken,
+  upsertRsvpByPhone,
 } from "@/lib/store";
 import type { Rsvp } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 const bodySchema = z.object({
-  token: z.string().trim().min(16).max(64).optional(),
+  token: z.string().trim().min(6).max(64).optional(),
+  full_name: z.string().trim().min(2).max(80).optional(),
   guest_count: z.coerce.number().int().min(1).max(10),
   status: z.enum(["confirmed", "declined", "maybe"]),
   notes: z.string().trim().max(1000).optional().nullable(),
@@ -127,7 +129,7 @@ export async function POST(request: Request) {
       }
       full = await getRsvpByToken(parsed.data.token);
     } else if (sessionPhone) {
-      full = await updateRsvpByPhone(sessionPhone, {
+      const existing = await updateRsvpByPhone(sessionPhone, {
         guest_count: count,
         status: parsed.data.status,
         notes: parsed.data.notes ?? null,
@@ -135,8 +137,24 @@ export async function POST(request: Request) {
         wants_to_speak: parsed.data.wants_to_speak ?? null,
         excitement: parsed.data.excitement ?? null,
       });
-      if (!full) {
-        return Response.json({ error: "לא נמצאה הרשמה" }, { status: 404 });
+
+      if (existing) {
+        full = existing;
+      } else {
+        const name = parsed.data.full_name?.trim() || "";
+        if (name.length < 2) {
+          return Response.json(
+            { error: "נא להזין שם מלא" },
+            { status: 400 }
+          );
+        }
+        full = await upsertRsvpByPhone({
+          phone: sessionPhone,
+          full_name: name,
+          guest_count: count,
+          status: parsed.data.status,
+          notes: parsed.data.notes ?? null,
+        });
       }
     } else {
       return Response.json(

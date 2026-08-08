@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { CONFIRM_PROMPT } from "@/lib/copy";
+import { phoneValidationError } from "@/lib/phone";
+import {
+  resolveThankYouKind,
+  thankYouMessage,
+  type ThankYouKind,
+  type ThankYouMessages,
+} from "@/lib/thank-you";
 import type { RsvpStatus } from "@/lib/types";
 
 type Status = Exclude<RsvpStatus, "imported">;
@@ -16,6 +23,7 @@ type Guest = {
   wants_to_speak?: string | null;
   excitement?: number | null;
   already_final: boolean;
+  is_new?: boolean;
 };
 
 type Step = "phone" | "code" | "confirm";
@@ -24,45 +32,53 @@ type Props = {
   lead?: string;
   help?: string;
   confirmPrompt?: string;
+  thankYou?: ThankYouMessages;
 };
 
-export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
+const DEFAULT_THANK_YOU: ThankYouMessages = {
+  thankYouConfirmed: "תודה שאישרת את הגעתך. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.",
+  thankYouUpdated: "תודה שעדכנת אותנו — נדע להיערך יותר טוב.",
+  thankYouDeclined: "תודה על העדכון. נתראה באירוע אחר בקרוב.",
+  thankYouMaybe: "קיבלנו את העדכון. אפשר לחזור ולעדכן בכל רגע.",
+};
+
+export function PhoneAuthRsvp({
+  lead,
+  help,
+  confirmPrompt,
+  thankYou = DEFAULT_THANK_YOU,
+}: Props) {
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [guest, setGuest] = useState<Guest | null>(null);
+  const [fullName, setFullName] = useState("");
   const [status, setStatus] = useState<Status>("confirmed");
   const [guestCount, setGuestCount] = useState(1);
-  const [notes, setNotes] = useState("");
-  const [video, setVideo] = useState("");
-  const [speak, setSpeak] = useState("");
-  const [excitement, setExcitement] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const [doneStatus, setDoneStatus] = useState<Status | null>(null);
+  const [doneKind, setDoneKind] = useState<ThankYouKind | null>(null);
+  const [doneName, setDoneName] = useState("");
+  const [lastOtpPhone, setLastOtpPhone] = useState<string | null>(null);
+  const [otpCooldownUntil, setOtpCooldownUntil] = useState(0);
+
+  function applyGuest(next: Guest) {
+    setGuest(next);
+    setFullName(next.full_name || "");
+    setGuestCount(Math.max(next.guest_count || 1, 1));
+    setStatus(
+      next.status === "imported" ? "confirmed" : (next.status as Status)
+    );
+    setStep("confirm");
+  }
 
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((data) => {
-        if (data.guest) {
-          setGuest(data.guest);
-          setGuestCount(Math.max(data.guest.guest_count || 1, 1));
-          setNotes(data.guest.notes || "");
-          setVideo(data.guest.wants_video_blessing || "");
-          setSpeak(data.guest.wants_to_speak || "");
-          setExcitement(
-            data.guest.excitement ? String(data.guest.excitement) : ""
-          );
-          setStatus(
-            data.guest.status === "imported"
-              ? "confirmed"
-              : (data.guest.status as Status)
-          );
-          setStep("confirm");
-        }
+        if (data.guest) applyGuest(data.guest);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -70,19 +86,42 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
   async function sendOtp(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    const trimmed = phone.trim();
+    const invalid = phoneValidationError(trimmed);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+
+    if (
+      lastOtpPhone &&
+      trimmed === lastOtpPhone &&
+      Date.now() < otpCooldownUntil
+    ) {
+      setStep("code");
+      setError("הקוד כבר נשלח למספר הזה. בדקו ב־WhatsApp.");
+      return;
+    }
+
     setBusy(true);
     try {
       const res = await fetch("/api/auth/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone: trimmed }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "שגיאה בשליחת הקוד");
         return;
       }
+      setLastOtpPhone(trimmed);
+      setOtpCooldownUntil(Date.now() + 90_000);
       setStep("code");
+      if (data.reused) {
+        setError(data.message || "הקוד כבר נשלח. בדקו ב־WhatsApp.");
+      }
     } catch {
       setError("בעיית רשת");
     } finally {
@@ -105,20 +144,7 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
         setError(data.error || "אימות נכשל");
         return;
       }
-      setGuest(data.guest);
-      setGuestCount(Math.max(data.guest.guest_count || 1, 1));
-      setNotes(data.guest.notes || "");
-      setVideo(data.guest.wants_video_blessing || "");
-      setSpeak(data.guest.wants_to_speak || "");
-      setExcitement(
-        data.guest.excitement ? String(data.guest.excitement) : ""
-      );
-      setStatus(
-        data.guest.status === "imported"
-          ? "confirmed"
-          : (data.guest.status as Status)
-      );
-      setStep("confirm");
+      applyGuest(data.guest);
     } catch {
       setError("בעיית רשת");
     } finally {
@@ -128,19 +154,25 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
 
   async function submitRsvp(e: React.FormEvent) {
     e.preventDefault();
+    if (!guest) return;
     setError(null);
+
+    const isNew = Boolean(guest.is_new);
+    const name = fullName.trim();
+    if (isNew && name.length < 2) {
+      setError("נא להזין שם מלא");
+      return;
+    }
+
     setBusy(true);
     try {
       const res = await fetch("/api/rsvp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          full_name: isNew ? name : undefined,
           guest_count: guestCount,
           status,
-          notes: notes.trim() || null,
-          wants_video_blessing: video.trim() || null,
-          wants_to_speak: speak.trim() || null,
-          excitement: excitement ? Number(excitement) : null,
         }),
       });
       const data = await res.json();
@@ -148,7 +180,15 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
         setError(data.error || "שגיאה בשמירה");
         return;
       }
-      setDoneStatus(status);
+      setDoneName(isNew ? name : guest.full_name);
+      setDoneKind(
+        resolveThankYouKind({
+          previousStatus: guest.status,
+          previousGuestCount: guest.guest_count,
+          nextStatus: status,
+          nextGuestCount: guestCount,
+        })
+      );
       setDone(true);
     } catch {
       setError("בעיית רשת");
@@ -160,26 +200,25 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
   async function logout() {
     await fetch("/api/auth/me", { method: "DELETE" });
     setGuest(null);
+    setFullName("");
     setStep("phone");
     setCode("");
     setDone(false);
+    setDoneKind(null);
+    setDoneName("");
   }
 
   if (loading) {
     return <p className="rsvp-lead">טוען…</p>;
   }
 
-  if (done && guest) {
-    const message =
-      doneStatus === "declined"
-        ? "עדכנו שלא תוכלו להגיע. תודה שעדכנתם."
-        : doneStatus === "maybe"
-          ? "קיבלנו את העדכון. אפשר להתחבר שוב ולשנות בכל רגע."
-          : "האישור הסופי התקבל. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.";
+  if (done && doneKind) {
     return (
       <div className="success-panel animate-fade-up" role="status">
-        <p className="success-title">תודה, {guest.full_name}!</p>
-        <p className="success-body">{message}</p>
+        <p className="success-title">תודה, {doneName}!</p>
+        <p className="success-body">
+          {thankYouMessage(doneKind, thankYou)}
+        </p>
       </div>
     );
   }
@@ -190,7 +229,7 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
         {lead && <p className="rsvp-lead">{lead}</p>}
         <p className="confirm-prompt">{confirmPrompt || CONFIRM_PROMPT}</p>
         <div className="field">
-          <label htmlFor="phone">מספר טלפון</label>
+          <label htmlFor="phone">מספר טלפון נייד</label>
           <input
             id="phone"
             type="tel"
@@ -200,6 +239,11 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
             placeholder="05X-XXXXXXX"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
+            onBlur={() => {
+              if (!phone.trim()) return;
+              const msg = phoneValidationError(phone);
+              setError(msg);
+            }}
           />
         </div>
         {error && (
@@ -217,36 +261,40 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
 
   if (step === "code") {
     return (
-      <form className="rsvp-form animate-fade-up" onSubmit={verifyOtp}>
-        <p className="rsvp-lead">
-          נשלח קוד אימות ל־WhatsApp במספר{" "}
-          <span dir="ltr">{phone}</span>
-        </p>
-        <div className="field">
-          <label htmlFor="code">קוד אימות</label>
-          <input
-            id="code"
-            inputMode="numeric"
-            dir="ltr"
-            required
-            autoComplete="one-time-code"
-            placeholder="6 ספרות"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-          />
-        </div>
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
+      <div className="rsvp-form animate-fade-up">
+        <form onSubmit={verifyOtp}>
+          <p className="rsvp-lead">
+            נשלח קוד אימות ל־WhatsApp במספר{" "}
+            <span dir="ltr">{phone}</span>
           </p>
-        )}
-        <button type="submit" className="submit-btn" disabled={busy}>
-          {busy ? "מאמת…" : "אימות והמשך"}
-        </button>
+          <div className="field">
+            <label htmlFor="code">קוד אימות</label>
+            <input
+              id="code"
+              inputMode="numeric"
+              dir="ltr"
+              required
+              autoComplete="one-time-code"
+              placeholder="6 ספרות"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+          </div>
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+          <button type="submit" className="submit-btn" disabled={busy}>
+            {busy ? "מאמת…" : "אימות והמשך"}
+          </button>
+        </form>
         <button
           type="button"
           className="link-btn ghost"
-          onClick={() => {
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
             setStep("phone");
             setCode("");
             setError(null);
@@ -254,19 +302,40 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
         >
           שינוי מספר
         </button>
-      </form>
+      </div>
     );
   }
 
   if (!guest) return null;
 
+  const isNew = Boolean(guest.is_new);
+
   return (
     <form className="rsvp-form animate-fade-up" onSubmit={submitRsvp}>
-      <p className="invitee-name">
-        שלום <strong>{guest.full_name}</strong>
-      </p>
+      {isNew ? (
+        <>
+          <p className="rsvp-lead">
+            ברוכים הבאים! מלאו את הפרטים לאישור הגעה.
+          </p>
+          <div className="field">
+            <label htmlFor="full_name">שם מלא</label>
+            <input
+              id="full_name"
+              required
+              autoComplete="name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="שם פרטי ומשפחה"
+            />
+          </div>
+        </>
+      ) : (
+        <p className="invitee-name">
+          שלום <strong>{guest.full_name}</strong>
+        </p>
+      )}
       <p className="confirm-prompt">{confirmPrompt || CONFIRM_PROMPT}</p>
-      {guest.already_final && (
+      {!isNew && guest.already_final && (
         <p className="rsvp-lead">כבר שלחתם אישור — אפשר לעדכן שוב.</p>
       )}
 
@@ -303,6 +372,7 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
           <select
             id="guest_count"
             value={guestCount}
+            required
             onChange={(e) => setGuestCount(Number(e.target.value))}
           >
             {[1, 2, 3, 4, 5, 6].map((n) => (
@@ -313,58 +383,6 @@ export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
           </select>
         </div>
       )}
-
-      <div className="field">
-        <label htmlFor="video">הקלטה מצולמת לברכה?</label>
-        <select
-          id="video"
-          value={video}
-          onChange={(e) => setVideo(e.target.value)}
-        >
-          <option value="">לא צוין</option>
-          <option value="כן, אשמח">כן, אשמח</option>
-          <option value="לא, תודה">לא, תודה</option>
-        </select>
-      </div>
-
-      <div className="field">
-        <label htmlFor="speak">לברך / לשאת דברים באירוע?</label>
-        <select
-          id="speak"
-          value={speak}
-          onChange={(e) => setSpeak(e.target.value)}
-        >
-          <option value="">לא צוין</option>
-          <option value="כן">כן</option>
-          <option value="לא">לא</option>
-        </select>
-      </div>
-
-      <div className="field">
-        <label htmlFor="excitement">כמה את/ה נרגש/ת? (1–5)</label>
-        <select
-          id="excitement"
-          value={excitement}
-          onChange={(e) => setExcitement(e.target.value)}
-        >
-          <option value="">לא צוין</option>
-          {[1, 2, 3, 4, 5].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="field">
-        <label htmlFor="notes">הערות / בקשות מיוחדות</label>
-        <textarea
-          id="notes"
-          rows={3}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-      </div>
 
       {error && (
         <p className="form-error" role="alert">

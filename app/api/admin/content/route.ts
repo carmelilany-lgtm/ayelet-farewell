@@ -54,9 +54,7 @@ export async function PUT(request: Request) {
   }
 
   if (Array.isArray(body.programItems)) {
-    next.programItems = body.programItems
-      .map((s) => String(s).trim())
-      .filter(Boolean);
+    next.programItems = body.programItems as SiteContent["programItems"];
   }
 
   const content = await saveSiteContent(next);

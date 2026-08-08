@@ -15,10 +15,19 @@ export async function GET(request: Request) {
   try {
     const guest = await getRsvpByPhone(phone);
     if (!guest) {
-      return Response.json(
-        { guest: null },
-        { headers: { "Set-Cookie": clearGuestSessionCookie() } }
-      );
+      // Verified phone, not yet registered — keep session for self-signup.
+      return Response.json({
+        guest: {
+          full_name: "",
+          phone,
+          guest_count: 1,
+          status: "imported",
+          notes: null,
+          already_final: false,
+          is_new: true,
+        },
+        is_new: true,
+      });
     }
     return Response.json({
       guest: {
@@ -31,7 +40,9 @@ export async function GET(request: Request) {
         wants_to_speak: guest.wants_to_speak,
         excitement: guest.excitement,
         already_final: Boolean(guest.final_confirmed_at),
+        is_new: false,
       },
+      is_new: false,
     });
   } catch (err) {
     console.error("auth/me failed", err);

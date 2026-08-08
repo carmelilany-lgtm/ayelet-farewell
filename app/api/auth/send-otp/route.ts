@@ -1,15 +1,18 @@
 import { z } from "zod";
 import { hasGreenApiConfig, sendWhatsAppText } from "@/lib/green-api";
-import { normalizePhone } from "@/lib/phone";
-import { generateOtpCode, saveOtp } from "@/lib/otp";
+import { normalizePhone, phoneValidationError } from "@/lib/phone";
+import { generateOtpCode, getOtpAgeMs, saveOtp } from "@/lib/otp";
 import { buildOtpMessage } from "@/lib/reminder-message";
 import { getRsvpByPhone } from "@/lib/store";
 
 export const runtime = "nodejs";
 
 const bodySchema = z.object({
-  phone: z.string().trim().min(9).max(20),
+  phone: z.string().trim().min(1).max(20),
 });
+
+/** Don't send another WhatsApp to the same number within this window. */
+const RESEND_COOLDOWN_MS = 90_000;
 
 const rateMap = new Map<string, { count: number; resetAt: number }>();
 
@@ -38,10 +41,18 @@ export async function POST(request: Request) {
     return Response.json({ error: "נא להזין מספר טלפון" }, { status: 400 });
   }
 
+  const validationError = phoneValidationError(parsed.data.phone);
+  if (validationError) {
+    return Response.json({ error: validationError }, { status: 400 });
+  }
+
   const phone = normalizePhone(parsed.data.phone);
   if (!phone) {
     return Response.json(
-      { error: "מספר טלפון לא תקין. השתמשו בפורמט 05X-XXXXXXX" },
+      {
+        error:
+          "מספר טלפון לא תקין. השתמשו במספר נייד ישראלי, למשל 05X-XXXXXXX",
+      },
       { status: 400 }
     );
   }
@@ -64,14 +75,19 @@ export async function POST(request: Request) {
 
   try {
     const guest = await getRsvpByPhone(phone);
-    if (!guest) {
-      return Response.json(
-        {
-          error:
-            "המספר לא נמצא ברשימת המוזמנים. בדקו את המספר או פנו למארגנים.",
-        },
-        { status: 404 }
-      );
+    const isNew = !guest;
+
+    const ageMs = await getOtpAgeMs(phone);
+    if (ageMs !== null && ageMs < RESEND_COOLDOWN_MS) {
+      const waitSec = Math.ceil((RESEND_COOLDOWN_MS - ageMs) / 1000);
+      return Response.json({
+        ok: true,
+        reused: true,
+        is_new: isNew,
+        full_name: guest?.full_name ?? null,
+        message: `הקוד כבר נשלח. אפשר לבקש קוד חדש בעוד ${waitSec} שניות.`,
+        retry_after: waitSec,
+      });
     }
 
     const code = generateOtpCode();
@@ -83,7 +99,9 @@ export async function POST(request: Request) {
 
     return Response.json({
       ok: true,
-      full_name: guest.full_name,
+      reused: false,
+      is_new: isNew,
+      full_name: guest?.full_name ?? null,
       message: "קוד אימות נשלח אליכם ב־WhatsApp",
     });
   } catch (err) {

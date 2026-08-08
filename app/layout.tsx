@@ -1,18 +1,11 @@
 import type { Metadata } from "next";
-import { Frank_Ruhl_Libre, Open_Sans } from "next/font/google";
+import { Open_Sans } from "next/font/google";
 import "./globals.css";
 
 const openSans = Open_Sans({
   subsets: ["hebrew", "latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["300", "400", "500", "600", "700", "800"],
   variable: "--font-sans",
-  display: "swap",
-});
-
-const frank = Frank_Ruhl_Libre({
-  subsets: ["hebrew", "latin"],
-  weight: ["400", "500", "700"],
-  variable: "--font-display",
   display: "swap",
 });
 
@@ -41,7 +34,7 @@ export default function RootLayout({
     <html
       lang="he"
       dir="rtl"
-      className={`${openSans.variable} ${frank.variable} h-full`}
+      className={`${openSans.variable} h-full`}
     >
       <body className="min-h-full antialiased">{children}</body>
     </html>

@@ -13,6 +13,7 @@ type OtpRow = {
   code_hash: string;
   expires_at: string;
   attempts: number;
+  created_at: string;
 };
 
 function secret(): string {
@@ -54,11 +55,13 @@ export function generateOtpCode(): string {
 }
 
 export async function saveOtp(phone: string, code: string): Promise<void> {
+  const now = new Date().toISOString();
   const row: OtpRow = {
     phone,
     code_hash: hashCode(phone, code),
     expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString(),
     attempts: 0,
+    created_at: now,
   };
 
   if (hasSupabaseConfig()) {
@@ -67,7 +70,7 @@ export async function saveOtp(phone: string, code: string): Promise<void> {
       code_hash: row.code_hash,
       expires_at: row.expires_at,
       attempts: 0,
-      created_at: new Date().toISOString(),
+      created_at: row.created_at,
     });
     if (error) throw error;
     return;
@@ -76,6 +79,27 @@ export async function saveOtp(phone: string, code: string): Promise<void> {
   const all = (await readLocal()).filter((r) => r.phone !== phone);
   all.push(row);
   await writeLocal(all);
+}
+
+/** Returns ms since last OTP was created for this phone, or null if none. */
+export async function getOtpAgeMs(phone: string): Promise<number | null> {
+  if (hasSupabaseConfig()) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("otp_codes")
+      .select("created_at, expires_at")
+      .eq("phone", phone)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data?.created_at) return null;
+    if (new Date(data.expires_at).getTime() < Date.now()) return null;
+    return Date.now() - new Date(data.created_at).getTime();
+  }
+
+  const all = await readLocal();
+  const row = all.find((r) => r.phone === phone);
+  if (!row?.created_at) return null;
+  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  return Date.now() - new Date(row.created_at).getTime();
 }
 
 export async function verifyOtp(

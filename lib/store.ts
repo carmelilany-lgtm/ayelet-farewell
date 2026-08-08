@@ -151,6 +151,44 @@ export async function markReminderSent(
   return rows[idx];
 }
 
+export async function clearReminderSent(
+  id?: string
+): Promise<{ cleared: number }> {
+  if (hasSupabaseConfig()) {
+    let query = getSupabaseAdmin()
+      .from("rsvps")
+      .update({
+        reminder_sent_at: null,
+        reminder_message_id: null,
+      })
+      .not("reminder_sent_at", "is", null);
+
+    if (id) {
+      query = query.eq("id", id);
+    }
+
+    const { data, error } = await query.select("id");
+    if (error) throw error;
+    return { cleared: data?.length ?? 0 };
+  }
+
+  const rows = await readLocal();
+  let cleared = 0;
+  const next = rows.map((r) => {
+    if (id && r.id !== id) return r;
+    if (!r.reminder_sent_at) return r;
+    cleared += 1;
+    return {
+      ...r,
+      reminder_sent_at: null,
+      reminder_message_id: null,
+      updated_at: nowIso(),
+    };
+  });
+  await writeLocal(next);
+  return { cleared };
+}
+
 export async function getRsvpByPhone(phone: string): Promise<Rsvp | null> {
   if (hasSupabaseConfig()) {
     const { data, error } = await getSupabaseAdmin()
@@ -214,8 +252,104 @@ export async function updateRsvpByPhone(
   return rows[idx];
 }
 
+/** Create a new guest from phone OTP self-registration, or update if exists. */
+export async function upsertRsvpByPhone(input: {
+  phone: string;
+  full_name: string;
+  guest_count: number;
+  status: Exclude<Rsvp["status"], "imported">;
+  notes?: string | null;
+}): Promise<Rsvp> {
+  const existing = await getRsvpByPhone(input.phone);
+  if (existing) {
+    const updated = await updateRsvpByPhone(input.phone, {
+      guest_count: input.guest_count,
+      status: input.status,
+      notes: input.notes ?? existing.notes,
+    });
+    if (!updated) throw new Error("Failed to update RSVP");
+    if (input.full_name.trim() && input.full_name.trim() !== existing.full_name) {
+      const renamed = await updateGuestName(input.phone, input.full_name.trim());
+      return renamed ?? updated;
+    }
+    return updated;
+  }
+
+  const timestamp = nowIso();
+  const count =
+    input.status === "declined" ? 0 : Math.max(input.guest_count, 1);
+  const row: Rsvp = {
+    id: randomUUID(),
+    invite_token: createInviteToken(),
+    full_name: input.full_name.trim(),
+    phone: input.phone,
+    guest_count: count,
+    status: input.status,
+    final_confirmed_at: timestamp,
+    wants_video_blessing: null,
+    wants_to_speak: null,
+    excitement: null,
+    notes: input.notes ?? null,
+    imported_at: null,
+    reminder_sent_at: null,
+    reminder_message_id: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+
+  if (hasSupabaseConfig()) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("rsvps")
+      .insert({
+        full_name: row.full_name,
+        phone: row.phone,
+        guest_count: row.guest_count,
+        status: row.status,
+        invite_token: row.invite_token,
+        final_confirmed_at: row.final_confirmed_at,
+        notes: row.notes,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return normalizeRow(data as Rsvp);
+  }
+
+  const rows = await readLocal();
+  rows.push(row);
+  await writeLocal(rows);
+  return row;
+}
+
+async function updateGuestName(
+  phone: string,
+  fullName: string
+): Promise<Rsvp | null> {
+  const timestamp = nowIso();
+  if (hasSupabaseConfig()) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("rsvps")
+      .update({ full_name: fullName, updated_at: timestamp })
+      .eq("phone", phone)
+      .select("*")
+      .maybeSingle();
+    if (error) throw error;
+    return data ? normalizeRow(data as Rsvp) : null;
+  }
+  const rows = await readLocal();
+  const idx = rows.findIndex((r) => r.phone === phone);
+  if (idx < 0) return null;
+  rows[idx] = {
+    ...rows[idx],
+    full_name: fullName,
+    updated_at: timestamp,
+  };
+  await writeLocal(rows);
+  return rows[idx];
+}
+
 export async function getRsvpByToken(token: string): Promise<Rsvp | null> {
-  if (!token || token.length < 16) return null;
+  if (!token || token.length < 6) return null;
   if (hasSupabaseConfig()) {
     const { data, error } = await getSupabaseAdmin()
       .from("rsvps")
@@ -240,7 +374,7 @@ export async function updateRsvpByToken(
   token: string,
   input: TokenUpdateInput
 ): Promise<PublicInviteView | null> {
-  if (!token || token.length < 16) return null;
+  if (!token || token.length < 6) return null;
   const timestamp = nowIso();
   const patch = buildRsvpUpdate(input, timestamp);
 

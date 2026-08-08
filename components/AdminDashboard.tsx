@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { inviteAbsoluteUrl } from "@/lib/invite-token";
 import { formatPhoneDisplay } from "@/lib/phone";
 import {
   DEFAULT_SITE_CONTENT,
+  formatProgramLines,
+  parseProgramLine,
   type SiteContent,
 } from "@/lib/site-content-defaults";
 import type { Rsvp, RsvpSummary } from "@/lib/types";
@@ -17,6 +19,22 @@ const statusLabel: Record<Rsvp["status"], string> = {
 };
 
 type Tab = "guests" | "content";
+type ContentSection =
+  | "hero"
+  | "program"
+  | "links"
+  | "rsvp"
+  | "thanks"
+  | "whatsapp";
+
+const CONTENT_SECTIONS: { id: ContentSection; label: string }[] = [
+  { id: "hero", label: "דף ראשי" },
+  { id: "program", label: "תוכנית" },
+  { id: "links", label: "קישורים" },
+  { id: "rsvp", label: "אישור הגעה" },
+  { id: "thanks", label: "הודעות תודה" },
+  { id: "whatsapp", label: "WhatsApp" },
+];
 
 type FieldDef = {
   key: keyof SiteContent;
@@ -58,6 +76,67 @@ function Field({
   );
 }
 
+function Fields({
+  fields,
+  columns = 1,
+  fieldValue,
+  onChange,
+}: {
+  fields: FieldDef[];
+  columns?: 1 | 2;
+  fieldValue: (key: keyof SiteContent) => string;
+  onChange: (key: keyof SiteContent, value: string) => void;
+}) {
+  return (
+    <div className={`content-grid ${columns === 2 ? "two" : ""}`}>
+      {fields.map((field) => (
+        <Field
+          key={field.key}
+          field={field}
+          value={fieldValue(field.key)}
+          onChange={(v) => onChange(field.key, v)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function LinkPair({
+  title,
+  labelKey,
+  urlKey,
+  fieldValue,
+  onChange,
+}: {
+  title: string;
+  labelKey: keyof SiteContent;
+  urlKey: keyof SiteContent;
+  fieldValue: (key: keyof SiteContent) => string;
+  onChange: (key: keyof SiteContent, value: string) => void;
+}) {
+  return (
+    <div className="content-link-pair">
+      <p className="content-link-pair-title">{title}</p>
+      <div className="content-grid two">
+        <Field
+          field={{ key: labelKey, label: "טקסט על הכפתור" }}
+          value={fieldValue(labelKey)}
+          onChange={(v) => onChange(labelKey, v)}
+        />
+        <Field
+          field={{
+            key: urlKey,
+            label: "קישור",
+            hint: "ריק = מוסתר באתר",
+          }}
+          value={fieldValue(urlKey)}
+          onChange={(v) => onChange(urlKey, v)}
+        />
+      </div>
+    </div>
+  );
+}
+
 function Panel({
   title,
   description,
@@ -83,6 +162,7 @@ export function AdminDashboard() {
   const [authed, setAuthed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("guests");
+  const [contentSection, setContentSection] = useState<ContentSection>("hero");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [summary, setSummary] = useState<RsvpSummary | null>(null);
@@ -92,8 +172,26 @@ export function AdminDashboard() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [bulkSending, setBulkSending] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [origin, setOrigin] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [guestSearch, setGuestSearch] = useState("");
+
+  const filteredRsvps = useMemo(() => {
+    const q = guestSearch.trim().toLowerCase();
+    if (!q) return rsvps;
+    return rsvps.filter((r) => {
+      const name = r.full_name.toLowerCase();
+      const phone = formatPhoneDisplay(r.phone).toLowerCase();
+      const phoneDigits = r.phone.replace(/\D/g, "");
+      const qDigits = q.replace(/\D/g, "");
+      return (
+        name.includes(q) ||
+        phone.includes(q) ||
+        (qDigits.length >= 3 && phoneDigits.includes(qDigits))
+      );
+    });
+  }, [rsvps, guestSearch]);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -168,6 +266,13 @@ export function AdminDashboard() {
   }
 
   async function sendReminder(id: string, force = false) {
+    const ok = confirm(
+      force
+        ? "לשלוח שוב תזכורת WhatsApp לאורח זה?"
+        : "לשלוח תזכורת WhatsApp לאורח זה עכשיו?"
+    );
+    if (!ok) return;
+
     setError(null);
     setInfo(null);
     setSendingId(id);
@@ -195,7 +300,12 @@ export function AdminDashboard() {
 
   async function sendAllPending() {
     const pending = summary?.reminders_pending ?? 0;
-    if (!confirm(`לשלוח תזכורת WhatsApp ל־${pending} אורחים?`)) return;
+    if (
+      !confirm(
+        `לשלוח תזכורת WhatsApp ידנית ל־${pending} אורחים?\n(לא נשלח אוטומטית — רק באישור הזה)`
+      )
+    )
+      return;
     setError(null);
     setInfo(null);
     setBulkSending(true);
@@ -216,6 +326,62 @@ export function AdminDashboard() {
       setError("בעיית רשת בשליחה מרובה");
     } finally {
       setBulkSending(false);
+    }
+  }
+
+  async function resetReminder(id: string) {
+    if (!confirm("לאפס את סטטוס התזכורת לאורח זה? (כאילו לא נשלחה)")) return;
+    setError(null);
+    setInfo(null);
+    setResetting(true);
+    try {
+      const res = await fetch("/api/admin/reset-reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "שגיאה באיפוס");
+        return;
+      }
+      setInfo(data.message || "התזכורת אופסה");
+      await load();
+    } catch {
+      setError("בעיית רשת באיפוס");
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  async function resetAllReminders() {
+    const sent = summary?.reminders_sent ?? 0;
+    if (
+      !confirm(
+        `לאפס את כל ${sent} התזכורות שנשלחו?\nאפשר יהיה לשלוח שוב מההתחלה.`
+      )
+    )
+      return;
+    setError(null);
+    setInfo(null);
+    setResetting(true);
+    try {
+      const res = await fetch("/api/admin/reset-reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "שגיאה באיפוס");
+        return;
+      }
+      setInfo(data.message || "כל התזכורות אופסו");
+      await load();
+    } catch {
+      setError("בעיית רשת באיפוס");
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -253,8 +419,8 @@ export function AdminDashboard() {
         ...c,
         programItems: value
           .split("\n")
-          .map((s) => s.trim())
-          .filter(Boolean),
+          .map((s) => parseProgramLine(s))
+          .filter((x): x is NonNullable<typeof x> => Boolean(x?.title)),
       }));
       return;
     }
@@ -262,7 +428,7 @@ export function AdminDashboard() {
   }
 
   function fieldValue(key: keyof SiteContent) {
-    if (key === "programItems") return content.programItems.join("\n");
+    if (key === "programItems") return formatProgramLines(content.programItems);
     return String(content[key] ?? "");
   }
 
@@ -271,6 +437,7 @@ export function AdminDashboard() {
   if (!authed) {
     return (
       <form className="admin-login" onSubmit={login}>
+        <div className="admin-login-ornament" aria-hidden="true" />
         <h1>ניהול</h1>
         <p>מסיבת פרידה — איילת</p>
         <label htmlFor="admin_password">סיסמה</label>
@@ -291,25 +458,11 @@ export function AdminDashboard() {
     <div className="admin-shell">
       <header className="admin-header">
         <div>
-          <h1>ניהול התזכורת</h1>
-          <p>אורחים, שליחות WhatsApp ועריכת כל תוכן האתר</p>
+          <p className="admin-kicker">מסיבת פרידה · איילת</p>
+          <h1>ניהול</h1>
+          <p>תזכורות נשלחות רק בלחיצה ידנית</p>
         </div>
         <div className="admin-actions">
-          {tab === "guests" && (
-            <button
-              type="button"
-              className="admin-btn"
-              onClick={sendAllPending}
-              disabled={bulkSending || !summary?.reminders_pending}
-            >
-              {bulkSending
-                ? "שולח…"
-                : `שלח תזכורות (${summary?.reminders_pending ?? 0})`}
-            </button>
-          )}
-          <a className="admin-btn ghost" href="/api/admin/rsvps?format=csv">
-            ייצוא CSV
-          </a>
           <a className="admin-btn ghost" href="/" target="_blank" rel="noreferrer">
             לאתר
           </a>
@@ -350,6 +503,49 @@ export function AdminDashboard() {
             <Stat label="אורחים צפויים" value={summary.total_guests_attending} />
           </div>
 
+          <div className="admin-toolbar">
+            <button
+              type="button"
+              className="admin-btn"
+              onClick={sendAllPending}
+              disabled={bulkSending || resetting || !summary.reminders_pending}
+            >
+              {bulkSending
+                ? "שולח…"
+                : `שלח תזכורות ממתינות (${summary.reminders_pending})`}
+            </button>
+            <button
+              type="button"
+              className="admin-btn ghost"
+              onClick={resetAllReminders}
+              disabled={bulkSending || resetting || !summary.reminders_sent}
+            >
+              {resetting
+                ? "מאפס…"
+                : `איפוס כל התזכורות (${summary.reminders_sent})`}
+            </button>
+            <a className="admin-btn ghost" href="/api/admin/rsvps?format=csv">
+              ייצוא CSV
+            </a>
+          </div>
+
+          <div className="admin-search">
+            <label htmlFor="guest_search">חיפוש לפי שם או טלפון</label>
+            <input
+              id="guest_search"
+              type="search"
+              placeholder="למשל: אורטל"
+              value={guestSearch}
+              onChange={(e) => setGuestSearch(e.target.value)}
+              autoComplete="off"
+            />
+            {guestSearch.trim() && (
+              <p className="admin-search-meta">
+                מציג {filteredRsvps.length} מתוך {rsvps.length}
+              </p>
+            )}
+          </div>
+
           <div className="admin-table-wrap">
             <table className="admin-table">
               <thead>
@@ -363,7 +559,16 @@ export function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {rsvps.map((r) => (
+                {filteredRsvps.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="admin-empty">
+                      {guestSearch.trim()
+                        ? "לא נמצאו אורחים לחיפוש הזה"
+                        : "אין אורחים עדיין"}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRsvps.map((r) => (
                   <tr key={r.id}>
                     <td>{r.full_name}</td>
                     <td dir="ltr">{formatPhoneDisplay(r.phone)}</td>
@@ -390,6 +595,7 @@ export function AdminDashboard() {
                           disabled={
                             sendingId === r.id ||
                             bulkSending ||
+                            resetting ||
                             r.status === "declined"
                           }
                           onClick={() =>
@@ -402,6 +608,16 @@ export function AdminDashboard() {
                               ? "שלח שוב"
                               : "שלח תזכורת"}
                         </button>
+                        {r.reminder_sent_at && (
+                          <button
+                            type="button"
+                            className="link-btn ghost"
+                            disabled={bulkSending || resetting}
+                            onClick={() => resetReminder(r.id)}
+                          >
+                            איפוס
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="link-btn ghost"
@@ -412,7 +628,8 @@ export function AdminDashboard() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -421,221 +638,258 @@ export function AdminDashboard() {
 
       {tab === "content" && (
         <form className="content-form content-layout" onSubmit={saveContent}>
-          <Panel
-            title="כותרת עליונה"
-            description="מה שמופיע מעל התמונה — ציטוט, כותרת, תאריך ומקום"
-          >
-            <div className="content-grid two">
-              {(
-                [
+          <nav className="content-sections" aria-label="קטגוריות תוכן">
+            {CONTENT_SECTIONS.map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                className={`content-section-tab ${
+                  contentSection === section.id ? "active" : ""
+                }`}
+                onClick={() => setContentSection(section.id)}
+              >
+                {section.label}
+              </button>
+            ))}
+          </nav>
+
+          {contentSection === "hero" && (
+            <Panel
+              title="דף ראשי"
+              description="מה שמופיע בראש העמוד — ציטוט, כותרת, תאריך ומקום"
+            >
+              <Fields
+                columns={2}
+                fieldValue={fieldValue}
+                onChange={updateField}
+                fields={[
                   { key: "quote", label: "ציטוט", span2: true },
-                  { key: "quoteSource", label: "מקור הציטוט" },
-                  { key: "banner", label: "כותרת משנה קטנה", hint: "למשל: הזמנה אישית" },
+                  { key: "quoteSource", label: "מקור", span2: true },
+                  { key: "banner", label: "כותרת משנה" },
                   { key: "title", label: "כותרת ראשית" },
                   { key: "dateTime", label: "תאריך ושעה" },
                   { key: "place", label: "מיקום" },
-                  { key: "ctaLabel", label: "טקסט כפתור לאישור הגעה" },
+                  { key: "ctaLabel", label: "טקסט כפתור אישור" },
                   {
                     key: "coverImage",
                     label: "תמונת רקע",
-                    hint: "נתיב באתר, למשל /invite.jpg",
+                    hint: "למשל /invite.jpg",
                   },
-                ] as FieldDef[]
-              ).map((field) => (
-                <Field
-                  key={field.key}
-                  field={field}
-                  value={fieldValue(field.key)}
-                  onChange={(v) => updateField(field.key, v)}
-                />
-              ))}
-            </div>
-          </Panel>
+                  {
+                    key: "footer",
+                    label: "שורה בתחתית האתר",
+                    span2: true,
+                  },
+                ]}
+              />
+            </Panel>
+          )}
 
-          <Panel
-            title="תוכנית הערב"
-            description="פרטי האירוע שמופיעים מתחת לכותרת"
-          >
-            <div className="content-grid">
-              <Field
-                field={{ key: "programTitle", label: "כותרת התוכנית" }}
-                value={fieldValue("programTitle")}
-                onChange={(v) => updateField("programTitle", v)}
-              />
-              <Field
-                field={{
-                  key: "programItems",
-                  label: "פריטי תוכנית",
-                  multiline: true,
-                  rows: 5,
-                  hint: "שורה אחת לכל פריט",
-                }}
-                value={fieldValue("programItems")}
-                onChange={(v) => updateField("programItems", v)}
-              />
-              <Field
-                field={{ key: "hosts", label: "הנחייה" }}
-                value={fieldValue("hosts")}
-                onChange={(v) => updateField("hosts", v)}
-              />
-              <Field
-                field={{
-                  key: "giftNote",
-                  label: "הערת מתנות / ביט",
-                  multiline: true,
-                  rows: 3,
-                }}
-                value={fieldValue("giftNote")}
-                onChange={(v) => updateField("giftNote", v)}
-              />
-            </div>
-          </Panel>
-
-          <Panel
-            title="קישורים"
-            description="Waze, Maps וביט — השאירו קישור ריק כדי להסתיר אותו"
-          >
-            <div className="content-grid two">
-              <Field
-                field={{ key: "linksTitle", label: "כותרת אזור הקישורים", span2: true }}
-                value={fieldValue("linksTitle")}
-                onChange={(v) => updateField("linksTitle", v)}
-              />
-              <Field
-                field={{ key: "wazeLabel", label: "טקסט Waze" }}
-                value={fieldValue("wazeLabel")}
-                onChange={(v) => updateField("wazeLabel", v)}
-              />
-              <Field
-                field={{ key: "wazeUrl", label: "קישור Waze" }}
-                value={fieldValue("wazeUrl")}
-                onChange={(v) => updateField("wazeUrl", v)}
-              />
-              <Field
-                field={{ key: "mapsLabel", label: "טקסט Maps" }}
-                value={fieldValue("mapsLabel")}
-                onChange={(v) => updateField("mapsLabel", v)}
-              />
-              <Field
-                field={{ key: "mapsUrl", label: "קישור Google Maps" }}
-                value={fieldValue("mapsUrl")}
-                onChange={(v) => updateField("mapsUrl", v)}
-              />
-              <Field
-                field={{ key: "bitLabel", label: "טקסט ביט" }}
-                value={fieldValue("bitLabel")}
-                onChange={(v) => updateField("bitLabel", v)}
-              />
-              <Field
-                field={{
-                  key: "bitUrl",
-                  label: "קישור ביט",
-                  hint: "חשוב למלא כדי שיופיע בדף",
-                }}
-                value={fieldValue("bitUrl")}
-                onChange={(v) => updateField("bitUrl", v)}
-              />
-            </div>
-          </Panel>
-
-          <Panel
-            title="אישור הגעה"
-            description="טקסטים באזור ה־RSVP בדף הראשי ובקישורים אישיים"
-          >
-            <div className="content-grid">
-              <Field
-                field={{ key: "rsvpTitle", label: "כותרת אזור האישור" }}
-                value={fieldValue("rsvpTitle")}
-                onChange={(v) => updateField("rsvpTitle", v)}
-              />
-              <Field
-                field={{
-                  key: "rsvpLeadHome",
-                  label: "טקסט הסבר בדף הראשי",
-                  multiline: true,
-                }}
-                value={fieldValue("rsvpLeadHome")}
-                onChange={(v) => updateField("rsvpLeadHome", v)}
-              />
-              <Field
-                field={{
-                  key: "rsvpHelp",
-                  label: "טקסט עזרה (לא מצאתם את עצמכם)",
-                  multiline: true,
-                }}
-                value={fieldValue("rsvpHelp")}
-                onChange={(v) => updateField("rsvpHelp", v)}
-              />
-              <Field
-                field={{
-                  key: "confirmPrompt",
-                  label: "הודעת האישור האישית",
-                  multiline: true,
-                  rows: 4,
-                  hint: "מופיעה לפני טופס אישור ההגעה",
-                }}
-                value={fieldValue("confirmPrompt")}
-                onChange={(v) => updateField("confirmPrompt", v)}
-              />
-              <Field
-                field={{
-                  key: "rsvpLeadInvite",
-                  label: "טקסט בדף קישור אישי",
-                  multiline: true,
-                  hint: "אפשר להשתמש ב־{name} לשם האורח/ת",
-                }}
-                value={fieldValue("rsvpLeadInvite")}
-                onChange={(v) => updateField("rsvpLeadInvite", v)}
-              />
-              <div className="content-grid two">
-                <Field
-                  field={{ key: "invalidLinkTitle", label: "כותרת קישור לא תקין" }}
-                  value={fieldValue("invalidLinkTitle")}
-                  onChange={(v) => updateField("invalidLinkTitle", v)}
-                />
-                <Field
-                  field={{
-                    key: "invalidLinkBody",
-                    label: "תוכן קישור לא תקין",
+          {contentSection === "program" && (
+            <Panel
+              title="תוכנית הערב"
+              description="לוח הזמנים והערות שמופיעים באזור הפרטים"
+            >
+              <Fields
+                fieldValue={fieldValue}
+                onChange={updateField}
+                fields={[
+                  { key: "programTitle", label: "כותרת" },
+                  {
+                    key: "programItems",
+                    label: "פריטים",
                     multiline: true,
-                  }}
-                  value={fieldValue("invalidLinkBody")}
-                  onChange={(v) => updateField("invalidLinkBody", v)}
+                    rows: 5,
+                    hint: "שורה לכל פריט: 18:00 | ברכות ומוזיקה",
+                  },
+                  { key: "hosts", label: "הנחייה" },
+                  {
+                    key: "giftNote",
+                    label: "הערת מתנות",
+                    multiline: true,
+                    rows: 3,
+                  },
+                ]}
+              />
+            </Panel>
+          )}
+
+          {contentSection === "links" && (
+            <Panel
+              title="קישורים"
+              description="כפתורי ניווט וביט — השאירו קישור ריק כדי להסתיר"
+            >
+              <Fields
+                fieldValue={fieldValue}
+                onChange={updateField}
+                fields={[
+                  { key: "linksTitle", label: "כותרת האזור" },
+                ]}
+              />
+              <div className="content-link-list">
+                <LinkPair
+                  title="Waze"
+                  labelKey="wazeLabel"
+                  urlKey="wazeUrl"
+                  fieldValue={fieldValue}
+                  onChange={updateField}
+                />
+                <LinkPair
+                  title="Google Maps"
+                  labelKey="mapsLabel"
+                  urlKey="mapsUrl"
+                  fieldValue={fieldValue}
+                  onChange={updateField}
+                />
+                <LinkPair
+                  title="ביט"
+                  labelKey="bitLabel"
+                  urlKey="bitUrl"
+                  fieldValue={fieldValue}
+                  onChange={updateField}
                 />
               </div>
-            </div>
-          </Panel>
+            </Panel>
+          )}
 
-          <Panel
-            title="WhatsApp ופוטר"
-            description="הודעות תזכורת ושורה בתחתית האתר"
-          >
-            <div className="content-grid">
-              <Field
-                field={{
-                  key: "reminderIntro",
-                  label: "פתיח הודעת תזכורת",
-                  multiline: true,
-                }}
-                value={fieldValue("reminderIntro")}
-                onChange={(v) => updateField("reminderIntro", v)}
+          {contentSection === "rsvp" && (
+            <Panel
+              title="אישור הגעה"
+              description="טקסטים בטופס ובקישורים האישיים"
+            >
+              <Fields
+                fieldValue={fieldValue}
+                onChange={updateField}
+                fields={[
+                  { key: "rsvpTitle", label: "כותרת האזור" },
+                  {
+                    key: "confirmPrompt",
+                    label: "הודעה לפני הטופס",
+                    multiline: true,
+                    rows: 4,
+                  },
+                  {
+                    key: "rsvpLeadHome",
+                    label: "הסבר בדף הראשי",
+                    multiline: true,
+                    rows: 2,
+                  },
+                  {
+                    key: "rsvpLeadInvite",
+                    label: "הסבר בקישור אישי",
+                    multiline: true,
+                    rows: 2,
+                    hint: "אפשר להשתמש ב־{name}",
+                  },
+                  {
+                    key: "rsvpHelp",
+                    label: "טקסט עזרה",
+                    multiline: true,
+                    rows: 2,
+                  },
+                  { key: "invalidLinkTitle", label: "כותרת לקישור לא תקין" },
+                  {
+                    key: "invalidLinkBody",
+                    label: "הסבר לקישור לא תקין",
+                    multiline: true,
+                    rows: 2,
+                  },
+                ]}
               />
-              <Field
-                field={{
-                  key: "reminderOutro",
-                  label: "סיום הודעת תזכורת",
-                  multiline: true,
-                }}
-                value={fieldValue("reminderOutro")}
-                onChange={(v) => updateField("reminderOutro", v)}
+            </Panel>
+          )}
+
+          {contentSection === "thanks" && (
+            <Panel
+              title="הודעות תודה"
+              description="מה שמופיע אחרי שליחת האישור, לפי סוג העדכון"
+            >
+              <Fields
+                fieldValue={fieldValue}
+                onChange={updateField}
+                fields={[
+                  {
+                    key: "thankYouConfirmed",
+                    label: "אישור הגעה",
+                    multiline: true,
+                    rows: 3,
+                    hint: "כשמשאירים את מספר האורחים כמו שהיה",
+                  },
+                  {
+                    key: "thankYouUpdated",
+                    label: "שינוי מספר אורחים",
+                    multiline: true,
+                    rows: 3,
+                  },
+                  {
+                    key: "thankYouDeclined",
+                    label: "לא יכול/ה להגיע",
+                    multiline: true,
+                    rows: 3,
+                  },
+                  {
+                    key: "thankYouMaybe",
+                    label: "עדיין לא בטוח/ה",
+                    multiline: true,
+                    rows: 3,
+                  },
+                ]}
               />
-              <Field
-                field={{ key: "footer", label: "פוטר בתחתית האתר" }}
-                value={fieldValue("footer")}
-                onChange={(v) => updateField("footer", v)}
+            </Panel>
+          )}
+
+          {contentSection === "whatsapp" && (
+            <Panel
+              title="הודעת WhatsApp"
+              description="תבנית התזכורת שנשלחת ידנית מהניהול"
+            >
+              <Fields
+                fieldValue={fieldValue}
+                onChange={updateField}
+                fields={[
+                  {
+                    key: "reminderIntro",
+                    label: "פתיח",
+                    multiline: true,
+                    rows: 2,
+                  },
+                  {
+                    key: "reminderSiteLabel",
+                    label: "לפני קישור האתר",
+                    hint: "למשל: לפרטים נוספים",
+                  },
+                  {
+                    key: "reminderLinkLabel",
+                    label: "לפני קישור אישי",
+                    hint: "למשל: לעדכון סטטוס ההגעה שלכם",
+                  },
+                  {
+                    key: "reminderOutro",
+                    label: "סיום",
+                    multiline: true,
+                    rows: 3,
+                  },
+                ]}
               />
-            </div>
-          </Panel>
+              <div className="content-preview">
+                <p className="content-preview-label">תצוגה מקדימה</p>
+                <pre className="content-preview-body">{`שלום [שם],
+
+${content.reminderIntro}
+
+📅 ${content.dateTime}
+📍 ${content.place}
+
+${content.reminderSiteLabel}:
+https://ayelet-farewell.vercel.app
+
+${content.reminderLinkLabel}:
+https://ayelet-farewell.vercel.app/i/xxxxxxxx
+
+${content.reminderOutro}`}</pre>
+              </div>
+            </Panel>
+          )}
 
           <div className="content-sticky-bar">
             <p

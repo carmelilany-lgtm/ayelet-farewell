@@ -82,6 +82,7 @@ async function sendOne(
 }
 
 export async function POST(request: Request) {
+  // Manual admin action only — no cron / auto-send.
   if (!isAuthed(request)) return unauthorized();
 
   if (!hasGreenApiConfig()) {

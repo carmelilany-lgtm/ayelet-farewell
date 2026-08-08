@@ -1,3 +1,12 @@
+import { Countdown } from "@/components/Countdown";
+import {
+  IconBit,
+  IconGift,
+  IconMap,
+  IconMic,
+  IconNav,
+} from "@/components/Icons";
+import { InviteViewer } from "@/components/InviteViewer";
 import type { SiteContent } from "@/lib/site-content";
 
 type Props = {
@@ -19,6 +28,7 @@ export function InvitationShell({
         className={`hero ${compact ? "hero-compact" : ""}`}
         aria-label={content.title}
       >
+        <div className="hero-bg" aria-hidden="true" />
         <div className="hero-content">
           <div className="hero-ornament" aria-hidden="true" />
           <p className="personal-banner">{content.banner}</p>
@@ -27,82 +37,101 @@ export function InvitationShell({
             <p>{content.dateTime}</p>
             <p>{content.place}</p>
           </div>
+          <Countdown />
           {!compact && (
-            <a className="hero-cta" href="#rsvp">
-              {content.ctaLabel}
-            </a>
-          )}
-        </div>
-      </section>
-
-      <section className="venue-section" aria-label="המקום">
-        <div className="venue-image-wrap">
-          <img
-            src="/venue.jpg"
-            alt="תחנת רוח, טבעון"
-            className="venue-image"
-          />
-        </div>
-      </section>
-
-      <section id="details" aria-labelledby="program-title">
-        <div className="section">
-          <h2 id="program-title" className="section-title">
-            {content.programTitle}
-          </h2>
-          <ol className="program-list">
-            {content.programItems.map((item, index) => (
-              <li key={`${item}-${index}`}>
-                <span className="program-num">
-                  {String(index + 1).padStart(2, "0")}
+            <div className="hero-actions">
+              <a className="hero-cta" href="#rsvp">
+                אישור הגעה
+              </a>
+              <div className="hero-secondary">
+                <a className="hero-text-link" href="#details">
+                  פרטי האירוע
+                </a>
+                <span className="hero-sep" aria-hidden="true">
+                  ·
                 </span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ol>
-
-          <div className="meta-block">
-            <p className="hosts">{content.hosts}</p>
-            <p className="gift-note">{content.giftNote}</p>
-          </div>
-
-          {hasLinks && (
-            <div className="links-block">
-              <p className="links-title">{content.linksTitle}</p>
-              <div className="quick-links">
-                {content.wazeUrl && (
-                  <a
-                    className="text-link"
-                    href={content.wazeUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {content.wazeLabel || "Waze"}
-                  </a>
-                )}
-                {content.mapsUrl && (
-                  <a
-                    className="text-link"
-                    href={content.mapsUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {content.mapsLabel || "Maps"}
-                  </a>
-                )}
-                {content.bitUrl && (
-                  <a
-                    className="text-link emphasis"
-                    href={content.bitUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {content.bitLabel || "ביט"}
-                  </a>
-                )}
+                <InviteViewer imageSrc={content.coverImage || "/invite.jpg"} />
               </div>
             </div>
           )}
+        </div>
+      </section>
+
+      <section id="details" className="program-section" aria-labelledby="program-title">
+        <div className="program-layout">
+          <div className="program-panel">
+            <h2 id="program-title" className="section-title">
+              {content.programTitle}
+            </h2>
+
+            <ol className="program-schedule">
+              {content.programItems.map((item, index) => (
+                <li key={`${item.time}-${item.title}-${index}`} className="schedule-row">
+                  <time className="schedule-time" dateTime={item.time || undefined}>
+                    {item.time || "—"}
+                  </time>
+                  <p className="schedule-title">{item.title}</p>
+                </li>
+              ))}
+            </ol>
+
+            <div className="evening-notes">
+              <p className="evening-note">
+                <IconMic className="evening-note-icon" />
+                <span>{content.hosts}</span>
+              </p>
+              <p className="evening-note soft">
+                <IconGift className="evening-note-icon" />
+                <span>{content.giftNote}</span>
+              </p>
+            </div>
+
+            {hasLinks && (
+              <div className="links-block">
+                <p className="links-title">{content.linksTitle}</p>
+                <div className="quick-links">
+                  {content.wazeUrl && (
+                    <a
+                      className="text-link"
+                      href={content.wazeUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <IconNav className="link-icon" />
+                      {content.wazeLabel || "Waze"}
+                    </a>
+                  )}
+                  {content.mapsUrl && (
+                    <a
+                      className="text-link"
+                      href={content.mapsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <IconMap className="link-icon" />
+                      {content.mapsLabel || "Maps"}
+                    </a>
+                  )}
+                  {content.bitUrl && (
+                    <a
+                      className="text-link emphasis"
+                      href={content.bitUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <IconBit className="link-icon" />
+                      {content.bitLabel || "ביט"}
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          <div
+            className="program-banner"
+            role="img"
+            aria-label="אווירה בתחנת רוח, טבעון"
+          />
         </div>
       </section>
 

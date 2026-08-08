@@ -1,6 +1,7 @@
 "use client";
 
 import { RsvpForm } from "@/components/RsvpForm";
+import type { ThankYouMessages } from "@/lib/thank-you";
 import type { PublicInviteView } from "@/lib/types";
 
 export function InvitePageClient({
@@ -8,11 +9,13 @@ export function InvitePageClient({
   invite,
   lead,
   confirmPrompt,
+  thankYou,
 }: {
   token: string;
   invite: PublicInviteView;
   lead?: string;
   confirmPrompt?: string;
+  thankYou?: ThankYouMessages;
 }) {
   return (
     <RsvpForm
@@ -20,6 +23,7 @@ export function InvitePageClient({
       invite={invite}
       lead={lead}
       confirmPrompt={confirmPrompt}
+      thankYou={thankYou}
     />
   );
 }

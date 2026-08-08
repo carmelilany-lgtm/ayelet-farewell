@@ -2,7 +2,9 @@
  * Normalize Israeli phone numbers to digits-only local form (05XXXXXXXX).
  * Accepts formats like 054-1234567, +97254..., 97254..., and numeric Excel values.
  */
-export function normalizePhone(input: string | number | null | undefined): string | null {
+export function normalizePhone(
+  input: string | number | null | undefined
+): string | null {
   if (input === null || input === undefined) return null;
 
   let raw = String(input).trim();
@@ -24,11 +26,38 @@ export function normalizePhone(input: string | number | null | undefined): strin
     digits = "0" + digits;
   }
 
-  if (!/^05\d{8}$/.test(digits)) {
+  if (!isValidIsraeliMobile(digits)) {
     return null;
   }
 
   return digits;
+}
+
+/** Israeli mobile: 05X + 7 digits (10 total). */
+export function isValidIsraeliMobile(digits: string): boolean {
+  return /^05[0-9]\d{7}$/.test(digits);
+}
+
+/** Client/server friendly validation message, or null if ok. */
+export function phoneValidationError(
+  input: string | number | null | undefined
+): string | null {
+  const raw = String(input ?? "").trim();
+  if (!raw) return "נא להזין מספר טלפון";
+
+  const digitsOnly = raw.replace(/\D/g, "");
+  if (digitsOnly.length < 9) {
+    return "מספר הטלפון קצר מדי. הזינו מספר נייד ישראלי מלא";
+  }
+  if (digitsOnly.length > 12) {
+    return "מספר הטלפון ארוך מדי";
+  }
+
+  if (!normalizePhone(raw)) {
+    return "מספר טלפון לא תקין. השתמשו במספר נייד ישראלי, למשל 05X-XXXXXXX";
+  }
+
+  return null;
 }
 
 export function formatPhoneDisplay(phone: string): string {

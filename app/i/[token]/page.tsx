@@ -39,6 +39,12 @@ export default async function InvitePage({ params }: Props) {
                 invite={invite}
                 lead={content.rsvpLeadInvite}
                 confirmPrompt={content.confirmPrompt}
+                thankYou={{
+                  thankYouConfirmed: content.thankYouConfirmed,
+                  thankYouUpdated: content.thankYouUpdated,
+                  thankYouDeclined: content.thankYouDeclined,
+                  thankYouMaybe: content.thankYouMaybe,
+                }}
               />
             </>
           )}
