@@ -397,18 +397,13 @@ const LEGACY_REMINDER_LINK_LABELS = new Set([
   "לעדכון סטטוס ההגעה שלכם",
 ]);
 
-const LEGACY_REMINDER_LINK_LINES = [
-  "לעדכון סטטוס ההגעה:",
-  "לעדכון סטטוס ההגעה שלכם:",
-];
-
 /**
  * Bring older CMS copies in line with current product copy.
  * Runs on read so WhatsApp/site pick up migrations without a manual re-save.
+ * Do not rewrite reminderTemplate personal-link wording — editors own that text.
  */
 export function migrateStoredSiteContent(content: SiteContent): SiteContent {
   const next = { ...content };
-  const personalLinkLabel = DEFAULT_SITE_CONTENT.reminderLinkLabel;
 
   if (
     /הקישור הזה אישי/.test(next.rsvpLeadInvite) ||
@@ -418,7 +413,7 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
   }
 
   if (LEGACY_REMINDER_LINK_LABELS.has(next.reminderLinkLabel.trim())) {
-    next.reminderLinkLabel = personalLinkLabel;
+    next.reminderLinkLabel = DEFAULT_SITE_CONTENT.reminderLinkLabel;
   }
 
   if (next.submitRsvpLabel.trim() === "שליחת אישור הגעה") {
@@ -438,15 +433,6 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
     "כבר שלחתם אישור. אפשר לעדכן אם משהו השתנה."
   ) {
     next.alreadyConfirmedNote = DEFAULT_SITE_CONTENT.alreadyConfirmedNote;
-  }
-
-  for (const oldLine of LEGACY_REMINDER_LINK_LINES) {
-    if (next.reminderTemplate.includes(oldLine)) {
-      next.reminderTemplate = next.reminderTemplate.replaceAll(
-        oldLine,
-        `${personalLinkLabel}:`
-      );
-    }
   }
 
   if (

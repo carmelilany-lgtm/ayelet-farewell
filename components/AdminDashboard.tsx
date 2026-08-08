@@ -1461,7 +1461,7 @@ export function AdminDashboard() {
           {contentSection === "whatsapp" && (
             <Panel
               title="הודעות WhatsApp"
-              description="ערכים ישנים ב־CMS מתעדכנים אוטומטית בקריאה; לשמירה קבועה — שחזרו לברירת מחדל ושמרו, או ערכו ידנית"
+              description="ערכים ישנים ב־CMS מתעדכנים אוטומטית בקריאה רק לשדות מוגדרים (לא לתבנית התזכורת). שמרו אחרי עריכה."
             >
               <div className="content-preview">
                 <p className="content-preview-label">
