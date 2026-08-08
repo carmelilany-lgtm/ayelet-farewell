@@ -1,4 +1,12 @@
 import { normalizePhone } from "./phone";
+import { logWhatsAppOutbound } from "./system-log";
+
+export type WhatsAppSendMeta = {
+  purpose: string;
+  guestName?: string | null;
+  rsvpId?: string | null;
+  actor?: string | null;
+};
 
 export function hasGreenApiConfig(): boolean {
   return Boolean(
@@ -208,7 +216,8 @@ export async function sendWhatsAppOtpCopy(
 export async function sendWhatsAppTextWithRetry(
   phone: string,
   message: string,
-  attempts = 3
+  attempts = 3,
+  meta?: WhatsAppSendMeta
 ): Promise<GreenSendResult> {
   let last: GreenSendResult = { ok: false, error: "לא נשלח" };
   let resolved: string | null = null;
@@ -218,13 +227,41 @@ export async function sendWhatsAppTextWithRetry(
       await sleep(300);
     }
     last = await sendWhatsAppText(phone, message, resolved);
-    if (last.ok) return last;
+    if (last.ok) {
+      if (meta) {
+        void logWhatsAppOutbound({
+          phone,
+          purpose: meta.purpose,
+          ok: true,
+          message,
+          guestName: meta.guestName,
+          rsvpId: meta.rsvpId,
+          actor: meta.actor,
+          messageId: last.idMessage,
+        });
+      }
+      return last;
+    }
     // Retry once with classic @c.us if LID path failed.
     if (resolved && resolved.includes("@lid")) {
       const classic = phoneToChatId(phone);
       if (classic && classic !== resolved) {
         const viaClassic = await sendWhatsAppText(phone, message, classic);
-        if (viaClassic.ok) return viaClassic;
+        if (viaClassic.ok) {
+          if (meta) {
+            void logWhatsAppOutbound({
+              phone,
+              purpose: meta.purpose,
+              ok: true,
+              message,
+              guestName: meta.guestName,
+              rsvpId: meta.rsvpId,
+              actor: meta.actor,
+              messageId: viaClassic.idMessage,
+            });
+          }
+          return viaClassic;
+        }
         last = viaClassic;
       }
     }
@@ -236,6 +273,18 @@ export async function sendWhatsAppTextWithRetry(
     if (i < attempts - 1) {
       await sleep(700 * (i + 1));
     }
+  }
+  if (meta) {
+    void logWhatsAppOutbound({
+      phone,
+      purpose: meta.purpose,
+      ok: false,
+      error: last.ok ? undefined : last.error,
+      message,
+      guestName: meta.guestName,
+      rsvpId: meta.rsvpId,
+      actor: meta.actor,
+    });
   }
   return last;
 }
@@ -254,7 +303,17 @@ export async function sendWhatsAppOtpWithRetry(
       await sleep(300);
     }
     last = await sendWhatsAppOtpCopy(phone, code, body);
-    if (last.ok) return last;
+    if (last.ok) {
+      void logWhatsAppOutbound({
+        phone,
+        purpose: "otp",
+        ok: true,
+        message: body,
+        actor: "system",
+        messageId: last.idMessage,
+      });
+      return last;
+    }
     console.warn("Green API OTP copy send attempt failed", {
       phone,
       attempt: i + 1,
@@ -266,7 +325,10 @@ export async function sendWhatsAppOtpWithRetry(
   }
 
   console.warn("Falling back to plain OTP text message", { phone, error: last.error });
-  return sendWhatsAppTextWithRetry(phone, body, 2);
+  return sendWhatsAppTextWithRetry(phone, body, 2, {
+    purpose: "otp",
+    actor: "system",
+  });
 }
 
 export type ReplyButton = {
@@ -518,13 +580,23 @@ export async function sendOrganizerMenuMessage(
     };
   }
 ): Promise<GreenSendResult> {
-  return sendWhatsAppReplyButtonsWithFallback(
+  const result = await sendWhatsAppReplyButtonsWithFallback(
     phone,
     opts.body,
     opts.buttons,
     opts.footer,
     opts.textFallback
   );
+  void logWhatsAppOutbound({
+    phone,
+    purpose: "organizer_menu",
+    ok: result.ok,
+    error: result.ok ? undefined : result.error,
+    message: opts.textFallback || opts.body,
+    actor: "whatsapp",
+    messageId: result.ok ? result.idMessage : null,
+  });
+  return result;
 }
 
 export function organizerNotifyPhone(): string {
@@ -559,7 +631,10 @@ export async function notifyOrganizersWhatsApp(
   const failed: string[] = [];
 
   for (const phone of phones) {
-    const result = await sendWhatsAppTextWithRetry(phone, message);
+    const result = await sendWhatsAppTextWithRetry(phone, message, 3, {
+      purpose: "organizer_notify",
+      actor: "system",
+    });
     if (result.ok) {
       sent += 1;
     } else {

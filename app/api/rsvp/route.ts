@@ -82,7 +82,12 @@ async function notifyGuestThankYou(
     inviteToken: rsvp.invite_token,
   });
 
-  const result = await sendWhatsAppTextWithRetry(rsvp.phone, message, 3);
+  const result = await sendWhatsAppTextWithRetry(rsvp.phone, message, 3, {
+    purpose: "thank_you",
+    guestName: rsvp.full_name,
+    rsvpId: rsvp.id,
+    actor: "system",
+  });
   if (!result.ok) {
     console.error("Guest thank-you WhatsApp failed", result.error);
   }

@@ -10,12 +10,14 @@ import {
   type SiteContent,
 } from "@/lib/site-content-defaults";
 import { ProgramScheduleEditor } from "@/components/ProgramScheduleEditor";
+import { summarizeRsvps } from "@/lib/rsvp-summary";
 import {
   isManualPendingGuest,
   normalizeGuestName,
   type Rsvp,
-  type RsvpSummary,
+  type RsvpStatus,
 } from "@/lib/types";
+import type { SystemEvent } from "@/lib/system-log";
 
 const statusLabel: Record<Rsvp["status"], string> = {
   imported: "ממתין לאישור סופי",
@@ -24,7 +26,7 @@ const statusLabel: Record<Rsvp["status"], string> = {
   maybe: "עדיין לא יודע/ת",
 };
 
-type Tab = "guests" | "content";
+type Tab = "guests" | "content" | "log";
 type ContentSection =
   | "hero"
   | "program"
@@ -224,7 +226,6 @@ export function AdminDashboard() {
   const [contentSection, setContentSection] = useState<ContentSection>("hero");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [summary, setSummary] = useState<RsvpSummary | null>(null);
   const [rsvps, setRsvps] = useState<Rsvp[]>([]);
   const [content, setContent] = useState<SiteContent>(DEFAULT_SITE_CONTENT);
   const [savingContent, setSavingContent] = useState(false);
@@ -235,6 +236,7 @@ export function AdminDashboard() {
   const [origin, setOrigin] = useState("");
   const [dirty, setDirty] = useState(false);
   const [guestSearch, setGuestSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<RsvpStatus | "all">("all");
   const [drafts, setDrafts] = useState<
     Record<
       string,
@@ -246,9 +248,18 @@ export function AdminDashboard() {
   const [newGuestName, setNewGuestName] = useState("");
   const [newGuestPhone, setNewGuestPhone] = useState("");
   const [addingGuest, setAddingGuest] = useState(false);
+  const [logEvents, setLogEvents] = useState<SystemEvent[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logFilter, setLogFilter] = useState<"all" | "whatsapp" | "rsvp" | "admin">(
+    "all"
+  );
 
   const matchesGuestSearch = useCallback(
     (r: Rsvp) => {
+      if (statusFilter !== "all") {
+        const effectiveStatus = drafts[r.id]?.status ?? r.status;
+        if (effectiveStatus !== statusFilter) return false;
+      }
       const q = guestSearch.trim().toLowerCase();
       if (!q) return true;
       const name = r.full_name.toLowerCase();
@@ -261,8 +272,28 @@ export function AdminDashboard() {
         (qDigits.length >= 3 && phoneDigits.includes(qDigits))
       );
     },
-    [guestSearch]
+    [guestSearch, statusFilter, drafts]
   );
+
+  const summary = useMemo(() => {
+    const effective = rsvps.map((r) => {
+      const d = drafts[r.id];
+      if (!d) return r;
+      return {
+        ...r,
+        status: d.status,
+        guest_count: d.guest_count,
+        full_name: d.full_name,
+      };
+    });
+    return summarizeRsvps(effective);
+  }, [rsvps, drafts]);
+
+  const confirmedGuestNames = useMemo(() => {
+    return rsvps
+      .filter((r) => (drafts[r.id]?.status ?? r.status) === "confirmed")
+      .map((r) => drafts[r.id]?.full_name?.trim() || r.full_name);
+  }, [rsvps, drafts]);
 
   const confirmedPhones = useMemo(() => {
     const set = new Set<string>();
@@ -335,7 +366,6 @@ export function AdminDashboard() {
     }
 
     const rsvpData = await rsvpRes.json();
-    setSummary(rsvpData.summary);
     setRsvps(rsvpData.rsvps);
     setDrafts({});
     setEditingId(null);
@@ -353,6 +383,56 @@ export function AdminDashboard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadLog = useCallback(async () => {
+    setLogLoading(true);
+    try {
+      const res = await fetch("/api/admin/system-log?limit=250");
+      if (res.status === 401) {
+        setAuthed(false);
+        return;
+      }
+      if (!res.ok) {
+        setError("שגיאה בטעינת יומן המערכת");
+        return;
+      }
+      const data = await res.json();
+      setLogEvents(Array.isArray(data.events) ? data.events : []);
+    } catch {
+      setError("בעיית רשת בטעינת היומן");
+    } finally {
+      setLogLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authed && tab === "log") {
+      void loadLog();
+    }
+  }, [authed, tab, loadLog]);
+
+  const filteredLogEvents = useMemo(() => {
+    if (logFilter === "all") return logEvents;
+    if (logFilter === "whatsapp") {
+      return logEvents.filter(
+        (e) => e.source === "whatsapp" || e.action.startsWith("wa_")
+      );
+    }
+    if (logFilter === "rsvp") {
+      return logEvents.filter((e) =>
+        ["rsvp_update", "rsvp_create", "admin_rsvp_update", "guest_rename"].includes(
+          e.action
+        )
+      );
+    }
+    return logEvents.filter(
+      (e) =>
+        e.source === "admin" ||
+        e.action.startsWith("reminder_") ||
+        e.action === "guest_created" ||
+        e.action === "content_save"
+    );
+  }, [logEvents, logFilter]);
 
   async function login(e: React.FormEvent) {
     e.preventDefault();
@@ -373,10 +453,10 @@ export function AdminDashboard() {
   async function logout() {
     await fetch("/api/admin/rsvps", { method: "DELETE" });
     setAuthed(false);
-    setSummary(null);
     setRsvps([]);
     setDrafts({});
     setEditingId(null);
+    setStatusFilter("all");
   }
 
   function draftFor(r: Rsvp) {
@@ -386,17 +466,6 @@ export function AdminDashboard() {
         guest_count: Math.max(r.guest_count || 0, r.status === "declined" ? 0 : 1),
         full_name: r.full_name,
       }
-    );
-  }
-
-  function isDraftDirty(r: Rsvp) {
-    const d = draftFor(r);
-    const currentCount =
-      r.status === "declined" ? 0 : Math.max(r.guest_count || 1, 1);
-    return (
-      d.status !== r.status ||
-      d.guest_count !== currentCount ||
-      d.full_name.trim() !== r.full_name.trim()
     );
   }
 
@@ -446,16 +515,36 @@ export function AdminDashboard() {
     setEditingId((current) => (current === id ? null : current));
   }
 
-  async function saveGuestDraft(r: Rsvp) {
-    const draft = draftFor(r);
+  async function saveGuestDraft(
+    r: Rsvp,
+    override?: Partial<{
+      status: Rsvp["status"];
+      guest_count: number;
+      full_name: string;
+    }>
+  ) {
+    const draft = { ...draftFor(r), ...override };
+    if (draft.status === "declined") draft.guest_count = 0;
+    else if (draft.guest_count < 1) draft.guest_count = 1;
+
     if (!draft.full_name.trim() || draft.full_name.trim().length < 2) {
       setError("נא להזין שם תקין");
       return;
     }
-    if (!isDraftDirty(r)) {
+
+    const currentCount =
+      r.status === "declined" ? 0 : Math.max(r.guest_count || 1, 1);
+    const dirtyDraft =
+      draft.status !== r.status ||
+      draft.guest_count !== currentCount ||
+      draft.full_name.trim() !== r.full_name.trim();
+
+    if (!dirtyDraft) {
       cancelEditGuest(r.id);
       return;
     }
+
+    setDrafts((prev) => ({ ...prev, [r.id]: draft }));
     setError(null);
     setInfo(null);
     setSavingId(r.id);
@@ -478,14 +567,18 @@ export function AdminDashboard() {
       setRsvps((list) =>
         list.map((row) => (row.id === r.id ? data.rsvp : row))
       );
-      if (data.summary) setSummary(data.summary);
       setDrafts((prev) => {
         const next = { ...prev };
         delete next[r.id];
         return next;
       });
       setEditingId((current) => (current === r.id ? null : current));
-      setInfo(`עודכן: ${data.rsvp.full_name}`);
+      const revoked = data.rsvp.status === "imported" && r.status !== "imported";
+      setInfo(
+        revoked
+          ? `בוטל האישור הסופי של ${data.rsvp.full_name} — חזר/ה לממתין לאישור`
+          : `עודכן: ${data.rsvp.full_name} · ${statusLabel[data.rsvp.status as Rsvp["status"]]}`
+      );
     } catch {
       setError("בעיית רשת בעדכון אורח");
     } finally {
@@ -545,7 +638,6 @@ export function AdminDashboard() {
       }
 
       setRsvps((list) => [data.rsvp, ...list]);
-      if (data.summary) setSummary(data.summary);
       setNewGuestName("");
       setNewGuestPhone("");
       setInfo(`נוסף: ${data.rsvp.full_name}`);
@@ -884,14 +976,15 @@ export function AdminDashboard() {
                           className="admin-inline-select"
                           value={draft.status}
                           disabled={savingId === r.id}
-                          onChange={(e) =>
-                            setDraft(r.id, {
-                              status: e.target.value as Rsvp["status"],
-                            })
-                          }
+                          onChange={(e) => {
+                            const status = e.target.value as Rsvp["status"];
+                            void saveGuestDraft(r, { status });
+                          }}
                           aria-label={`סטטוס של ${r.full_name}`}
                         >
-                          <option value="imported">ממתין לאישור</option>
+                          <option value="imported">
+                            ממתין לאישור (מבטל אישור סופי)
+                          </option>
                           <option value="confirmed">אושר</option>
                           <option value="maybe">עדיין לא יודע/ת</option>
                           <option value="declined">לא מגיע/ה</option>
@@ -931,6 +1024,16 @@ export function AdminDashboard() {
                               ? "שמור"
                               : "עריכה"}
                         </button>
+                        {editing ? (
+                          <button
+                            type="button"
+                            className="link-btn ghost"
+                            disabled={savingId === r.id}
+                            onClick={() => cancelEditGuest(r.id)}
+                          >
+                            ביטול
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="link-btn"
@@ -1036,18 +1139,52 @@ export function AdminDashboard() {
         >
           תוכן האתר
         </button>
+        <button
+          type="button"
+          className={`admin-tab ${tab === "log" ? "active" : ""}`}
+          onClick={() => setTab("log")}
+        >
+          יומן מערכת
+        </button>
       </nav>
 
-      {error && tab === "guests" && <p className="form-error">{error}</p>}
+      {error && (tab === "guests" || tab === "log") && (
+        <p className="form-error">{error}</p>
+      )}
       {info && tab === "guests" && <p className="form-info">{info}</p>}
 
-      {tab === "guests" && summary && (
+      {tab === "guests" && (
         <>
           <div className="admin-stats">
             <Stat label="סה״כ" value={summary.total_records} />
-            <Stat label="אושרו סופית" value={summary.confirmed} />
-            <Stat label="עדיין לא יודע/ת" value={summary.maybe} />
-            <Stat label="ממתינים" value={summary.imported_pending} />
+            <Stat
+              label="אושרו סופית"
+              value={summary.confirmed}
+              active={statusFilter === "confirmed"}
+              onClick={() =>
+                setStatusFilter((f) =>
+                  f === "confirmed" ? "all" : "confirmed"
+                )
+              }
+            />
+            <Stat
+              label="עדיין לא יודע/ת"
+              value={summary.maybe}
+              active={statusFilter === "maybe"}
+              onClick={() =>
+                setStatusFilter((f) => (f === "maybe" ? "all" : "maybe"))
+              }
+            />
+            <Stat
+              label="ממתינים"
+              value={summary.imported_pending}
+              active={statusFilter === "imported"}
+              onClick={() =>
+                setStatusFilter((f) =>
+                  f === "imported" ? "all" : "imported"
+                )
+              }
+            />
             <Stat
               label="טרם נרשמו (ידני)"
               value={summary.manual_pending ?? manualPendingTotal}
@@ -1056,6 +1193,36 @@ export function AdminDashboard() {
             <Stat label="תזכורות ממתינות" value={summary.reminders_pending} />
             <Stat label="אורחים צפויים" value={summary.total_guests_attending} />
           </div>
+          {confirmedGuestNames.length > 0 ? (
+            <p className="admin-confirmed-list">
+              אושרו סופית: {confirmedGuestNames.join(" · ")}
+              {statusFilter !== "confirmed" ? (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => setStatusFilter("confirmed")}
+                  >
+                    הצג ברשימה
+                  </button>
+                </>
+              ) : (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => setStatusFilter("all")}
+                  >
+                    נקה סינון
+                  </button>
+                </>
+              )}
+            </p>
+          ) : (
+            <p className="admin-confirmed-list muted">אין אורחים שאושרו סופית</p>
+          )}
 
           <div className="admin-toolbar">
             <button
@@ -1112,10 +1279,25 @@ export function AdminDashboard() {
               onChange={(e) => setGuestSearch(e.target.value)}
               autoComplete="off"
             />
-            {guestSearch.trim() && (
+            {(guestSearch.trim() || statusFilter !== "all") && (
               <p className="admin-search-meta">
                 מציג {registeredRsvps.length + manualPendingRsvps.length} מתוך{" "}
                 {rsvps.length}
+                {statusFilter !== "all"
+                  ? ` · סינון: ${statusLabel[statusFilter]}`
+                  : ""}
+                {statusFilter !== "all" ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => setStatusFilter("all")}
+                    >
+                      נקה סינון סטטוס
+                    </button>
+                  </>
+                ) : null}
               </p>
             )}
           </div>
@@ -1195,8 +1377,9 @@ export function AdminDashboard() {
               hint="עד שיאשרו"
               defaultOpen={manualPendingTotal > 0}
               openSignal={
-                guestSearch.trim() && manualPendingRsvps.length > 0
-                  ? guestSearch.trim()
+                (guestSearch.trim() || statusFilter !== "all") &&
+                manualPendingRsvps.length > 0
+                  ? `${guestSearch.trim()}|${statusFilter}|manual`
                   : null
               }
             >
@@ -1206,8 +1389,8 @@ export function AdminDashboard() {
               </p>
               {renderGuestTable(
                 manualPendingRsvps,
-                guestSearch.trim()
-                  ? "לא נמצאו אורחים ידניים לחיפוש הזה"
+                guestSearch.trim() || statusFilter !== "all"
+                  ? "לא נמצאו אורחים ידניים לסינון הזה"
                   : "אין אורחים ידניים שממתינים לרישום"
               )}
             </Accordion>
@@ -1217,8 +1400,9 @@ export function AdminDashboard() {
               hint="אושרו / לא יודעים / יובאו / סירבו"
               defaultOpen
               openSignal={
-                guestSearch.trim() && registeredRsvps.length > 0
-                  ? guestSearch.trim()
+                (guestSearch.trim() || statusFilter !== "all") &&
+                registeredRsvps.length > 0
+                  ? `${guestSearch.trim()}|${statusFilter}|registered`
                   : null
               }
             >
@@ -1228,13 +1412,132 @@ export function AdminDashboard() {
               </p>
               {renderGuestTable(
                 registeredRsvps,
-                guestSearch.trim()
-                  ? "לא נמצאו אורחים לחיפוש הזה"
+                guestSearch.trim() || statusFilter !== "all"
+                  ? "לא נמצאו אורחים לסינון הזה"
                   : "אין אורחים עדיין"
               )}
             </Accordion>
           </div>
         </>
+      )}
+
+      {tab === "log" && (
+        <section className="admin-log">
+          <div className="admin-log-toolbar">
+            <div className="admin-log-filters" role="group" aria-label="סינון יומן">
+              {(
+                [
+                  ["all", "הכל"],
+                  ["whatsapp", "וואטסאפ"],
+                  ["rsvp", "אישורי הגעה"],
+                  ["admin", "ניהול"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`admin-btn ghost ${logFilter === id ? "active" : ""}`}
+                  onClick={() => setLogFilter(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="admin-btn"
+              onClick={() => void loadLog()}
+              disabled={logLoading}
+            >
+              {logLoading ? "טוען…" : "רענון"}
+            </button>
+          </div>
+          <p className="admin-log-lead">
+            כל שינוי באורחים, שליחות וואטסאפ, תזכורות ועדכוני תוכן — מהחדש לישן.
+          </p>
+          <div className="admin-table-wrap">
+            <table className="admin-table admin-log-table">
+              <thead>
+                <tr>
+                  <th>זמן</th>
+                  <th>מקור</th>
+                  <th>פעולה</th>
+                  <th>תיאור</th>
+                  <th>אורח / טלפון</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logLoading && logEvents.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="admin-empty">
+                      טוען יומן…
+                    </td>
+                  </tr>
+                ) : filteredLogEvents.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="admin-empty">
+                      אין עדיין רשומות ביומן
+                    </td>
+                  </tr>
+                ) : (
+                  filteredLogEvents.map((event) => {
+                    const when = new Date(event.created_at);
+                    const timeLabel = Number.isNaN(when.getTime())
+                      ? event.created_at
+                      : when.toLocaleString("he-IL", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        });
+                    const preview =
+                      typeof event.detail?.preview === "string"
+                        ? event.detail.preview
+                        : null;
+                    const purpose =
+                      typeof event.detail?.purpose === "string"
+                        ? event.detail.purpose
+                        : null;
+                    return (
+                      <tr
+                        key={event.id}
+                        className={event.ok ? undefined : "admin-log-row-fail"}
+                      >
+                        <td data-label="זמן" dir="ltr">
+                          {timeLabel}
+                        </td>
+                        <td data-label="מקור">
+                          <span className={`pill log-source-${event.source}`}>
+                            {sourceLabelHe(event.source)}
+                          </span>
+                        </td>
+                        <td data-label="פעולה">
+                          {actionLabelHe(event.action, purpose)}
+                          {!event.ok ? " · נכשל" : ""}
+                        </td>
+                        <td data-label="תיאור">
+                          <div>{event.summary}</div>
+                          {preview ? (
+                            <div className="admin-log-preview">{preview}</div>
+                          ) : null}
+                        </td>
+                        <td data-label="אורח / טלפון">
+                          {event.guest_name || "—"}
+                          {event.phone ? (
+                            <div dir="ltr" className="admin-log-phone">
+                              {formatPhoneDisplay(event.phone)}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {tab === "content" && (
@@ -1585,7 +1888,63 @@ export function AdminDashboard() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function sourceLabelHe(source: string): string {
+  switch (source) {
+    case "whatsapp":
+      return "וואטסאפ";
+    case "admin":
+      return "ניהול";
+    case "guest":
+      return "אורח";
+    case "import":
+      return "ייבוא";
+    default:
+      return "מערכת";
+  }
+}
+
+function actionLabelHe(action: string, purpose?: string | null): string {
+  const map: Record<string, string> = {
+    wa_sent: "הודעת וואטסאפ",
+    wa_send_failed: "שליחת וואטסאפ נכשלה",
+    rsvp_update: "עדכון אישור הגעה",
+    rsvp_create: "אישור הגעה חדש",
+    admin_rsvp_update: "עדכון סטטוס (ניהול)",
+    guest_created: "הוספת אורח",
+    guest_rename: "שינוי שם",
+    reminder_marked: "תזכורת סומנה",
+    reminder_reset: "איפוס תזכורת",
+    content_save: "שמירת תוכן",
+  };
+  const base = map[action] || action;
+  if (purpose) return `${base} · ${purpose}`;
+  return base;
+}
+
+function Stat({
+  label,
+  value,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={`stat ${active ? "stat-active" : ""}`}
+        onClick={onClick}
+        aria-pressed={active}
+      >
+        <span className="stat-value">{value}</span>
+        <span className="stat-label">{label}</span>
+      </button>
+    );
+  }
   return (
     <div className="stat">
       <span className="stat-value">{value}</span>

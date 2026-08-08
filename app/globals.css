@@ -2087,6 +2087,112 @@ a.admin-btn.ghost:hover:not(:disabled) {
   display: grid;
   gap: 0.2rem;
   border-bottom: 1px solid var(--border);
+  text-align: inherit;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  cursor: default;
+}
+
+button.stat {
+  cursor: pointer;
+}
+
+button.stat:hover .stat-value,
+button.stat:focus-visible .stat-value {
+  color: var(--gold-deep, #8a6a1a);
+}
+
+.stat-active {
+  border-bottom-color: var(--gold);
+}
+
+.stat-active .stat-value {
+  color: var(--gold-deep, #8a6a1a);
+  font-weight: 500;
+}
+
+.admin-confirmed-list {
+  margin: -0.75rem 0 1.5rem;
+  font-size: 0.9rem;
+  color: var(--navy);
+  line-height: 1.5;
+}
+
+.admin-confirmed-list.muted {
+  color: var(--navy-soft);
+}
+
+.admin-confirmed-list .link-btn {
+  margin-inline-start: 0.35rem;
+}
+
+.admin-log {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-log-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.admin-log-filters .admin-btn.active {
+  border-color: var(--gold);
+  color: var(--navy);
+}
+
+.admin-log-lead {
+  margin: 0;
+  color: var(--navy-soft);
+  font-size: 0.92rem;
+}
+
+.admin-log-preview {
+  margin-top: 0.25rem;
+  color: var(--navy-soft);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.admin-log-phone {
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+  color: var(--navy-soft);
+}
+
+.admin-log-row-fail td {
+  color: #8a2f2f;
+}
+
+.pill.log-source-whatsapp {
+  background: #e8f5e9;
+  color: #1b5e20;
+}
+
+.pill.log-source-admin {
+  background: #eef2ff;
+  color: #283593;
+}
+
+.pill.log-source-guest {
+  background: #fff8e1;
+  color: #6d4c00;
+}
+
+.pill.log-source-system,
+.pill.log-source-import {
+  background: #f3f4f6;
+  color: #374151;
 }
 
 .stat-value {

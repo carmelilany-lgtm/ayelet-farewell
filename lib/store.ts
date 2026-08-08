@@ -4,6 +4,8 @@ import path from "path";
 import { createInviteToken } from "./invite-token";
 import { normalizePhone, phonesMatch } from "./phone";
 import { getSupabaseAdmin, hasSupabaseConfig } from "./supabase";
+import { summarizeRsvps } from "./rsvp-summary";
+import { appendSystemLog, statusLabelHe } from "./system-log";
 import type {
   PublicInviteView,
   Rsvp,
@@ -11,7 +13,7 @@ import type {
   RsvpSummary,
   TokenUpdateInput,
 } from "./types";
-import { isManualPendingGuest, normalizeGuestName } from "./types";
+import { normalizeGuestName } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "rsvps.json");
@@ -70,33 +72,6 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function summarize(rows: Rsvp[]): RsvpSummary {
-  const eligibleForReminder = rows.filter(
-    (r) => r.status === "imported" || r.status === "confirmed" || r.status === "maybe"
-  );
-  const manualPending = rows.filter(isManualPendingGuest);
-  return {
-    total_records: rows.length,
-    confirmed: rows.filter((r) => r.status === "confirmed").length,
-    declined: rows.filter((r) => r.status === "declined").length,
-    maybe: rows.filter((r) => r.status === "maybe").length,
-    imported_pending: rows.filter(
-      (r) => r.status === "imported" && !isManualPendingGuest(r)
-    ).length,
-    manual_pending: manualPending.length,
-    total_guests_attending: rows
-      .filter(
-        (r) =>
-          (r.status === "confirmed" || r.status === "imported") &&
-          !isManualPendingGuest(r)
-      )
-      .reduce((sum, r) => sum + r.guest_count, 0),
-    reminders_sent: rows.filter((r) => Boolean(r.reminder_sent_at)).length,
-    reminders_pending: eligibleForReminder.filter((r) => !r.reminder_sent_at)
-      .length,
-  };
-}
-
 function toPublicView(row: Rsvp): PublicInviteView {
   return {
     full_name: row.full_name,
@@ -106,7 +81,9 @@ function toPublicView(row: Rsvp): PublicInviteView {
     wants_video_blessing: row.wants_video_blessing,
     wants_to_speak: row.wants_to_speak,
     excitement: row.excitement,
-    already_final: Boolean(row.final_confirmed_at),
+    // "ממתין לאישור" always means they may RSVP again (admin revoked final answer).
+    already_final:
+      row.status !== "imported" && Boolean(row.final_confirmed_at),
   };
 }
 
@@ -126,7 +103,7 @@ export async function listRsvps(): Promise<Rsvp[]> {
 }
 
 export async function getSummary(): Promise<RsvpSummary> {
-  return summarize(await listRsvps());
+  return summarizeRsvps(await listRsvps());
 }
 
 export async function getRsvpById(id: string): Promise<Rsvp | null> {
@@ -160,7 +137,20 @@ export async function markReminderSent(
       .select("*")
       .maybeSingle();
     if (error) throw error;
-    return data ? normalizeRow(data as Rsvp) : null;
+    const row = data ? normalizeRow(data as Rsvp) : null;
+    if (row) {
+      void appendSystemLog({
+        source: "admin",
+        action: "reminder_marked",
+        summary: `סומנה תזכורת כנשלחה · ${row.full_name}`,
+        actor: "admin",
+        guestName: row.full_name,
+        phone: row.phone,
+        rsvpId: row.id,
+        detail: { messageId },
+      });
+    }
+    return row;
   }
 
   const rows = await readLocal();
@@ -173,6 +163,16 @@ export async function markReminderSent(
     updated_at: timestamp,
   };
   await writeLocal(rows);
+  void appendSystemLog({
+    source: "admin",
+    action: "reminder_marked",
+    summary: `סומנה תזכורת כנשלחה · ${rows[idx].full_name}`,
+    actor: "admin",
+    guestName: rows[idx].full_name,
+    phone: rows[idx].phone,
+    rsvpId: rows[idx].id,
+    detail: { messageId },
+  });
   return rows[idx];
 }
 
@@ -194,7 +194,18 @@ export async function clearReminderSent(
 
     const { data, error } = await query.select("id");
     if (error) throw error;
-    return { cleared: data?.length ?? 0 };
+    const cleared = data?.length ?? 0;
+    void appendSystemLog({
+      source: "admin",
+      action: "reminder_reset",
+      summary: id
+        ? `אופסה תזכורת לאורח`
+        : `אופסו כל התזכורות (${cleared})`,
+      actor: "admin",
+      rsvpId: id ?? null,
+      detail: { cleared, id: id ?? null },
+    });
+    return { cleared };
   }
 
   const rows = await readLocal();
@@ -211,6 +222,16 @@ export async function clearReminderSent(
     };
   });
   await writeLocal(next);
+  void appendSystemLog({
+    source: "admin",
+    action: "reminder_reset",
+    summary: id
+      ? `אופסה תזכורת לאורח`
+      : `אופסו כל התזכורות (${cleared})`,
+    actor: "admin",
+    rsvpId: id ?? null,
+    detail: { cleared, id: id ?? null },
+  });
   return { cleared };
 }
 
@@ -287,6 +308,39 @@ function buildRsvpUpdate(input: TokenUpdateInput, timestamp: string) {
   return patch;
 }
 
+function logRsvpChange(
+  source: "admin" | "guest" | "whatsapp",
+  before: Rsvp | null,
+  after: Rsvp,
+  action: string
+) {
+  const fromStatus = before?.status;
+  const toStatus = after.status;
+  const statusBit =
+    fromStatus && fromStatus !== toStatus
+      ? `${statusLabelHe[fromStatus] ?? fromStatus} → ${statusLabelHe[toStatus] ?? toStatus}`
+      : statusLabelHe[toStatus] ?? toStatus;
+
+  void appendSystemLog({
+    source,
+    action,
+    summary: `${after.full_name} · ${statusBit}`,
+    actor: source,
+    guestName: after.full_name,
+    phone: after.phone,
+    rsvpId: after.id,
+    detail: {
+      fromStatus: fromStatus ?? null,
+      toStatus,
+      guestCount: after.guest_count,
+      fromGuestCount: before?.guest_count ?? null,
+      fromName: before?.full_name ?? null,
+      toName: after.full_name,
+      revokedFinal: toStatus === "imported" && fromStatus && fromStatus !== "imported",
+    },
+  });
+}
+
 export async function updateRsvpByPhone(
   phone: string,
   input: TokenUpdateInput
@@ -308,7 +362,9 @@ export async function updateRsvpByPhone(
       .select("*")
       .maybeSingle();
     if (error) throw error;
-    return data ? normalizeRow(data as Rsvp) : null;
+    const row = data ? normalizeRow(data as Rsvp) : null;
+    if (row) logRsvpChange("guest", existing, row, "rsvp_update");
+    return row;
   }
 
   const rows = await readLocal();
@@ -319,6 +375,7 @@ export async function updateRsvpByPhone(
     ...patch,
   } as Rsvp;
   await writeLocal(rows);
+  logRsvpChange("guest", existing, rows[idx], "rsvp_update");
   return rows[idx];
 }
 
@@ -330,19 +387,31 @@ export async function updateRsvpById(
     full_name?: string;
   }
 ): Promise<Rsvp | null> {
+  const existing = await getRsvpById(id);
+  if (!existing) return null;
+
   const timestamp = nowIso();
   const status = input.status;
   const guest_count =
     status === "declined" ? 0 : Math.max(1, Math.min(10, input.guest_count));
+
+  // "ממתין לאישור" = revoke any prior final RSVP so they can answer again.
   const patch: Record<string, unknown> = {
     status,
     guest_count,
     updated_at: timestamp,
-    final_confirmed_at:
-      status === "confirmed" || status === "declined" || status === "maybe"
-        ? timestamp
-        : null,
   };
+
+  if (status === "imported") {
+    patch.final_confirmed_at = null;
+    // Keep them in the main pending list (not "הוספה ידנית") after a revoke.
+    if (!existing.imported_at) {
+      patch.imported_at = existing.created_at || timestamp;
+    }
+  } else {
+    patch.final_confirmed_at = timestamp;
+  }
+
   if (input.full_name !== undefined) {
     const name = input.full_name.trim();
     if (!name || name.length < 2) throw new Error("INVALID_NAME");
@@ -357,7 +426,9 @@ export async function updateRsvpById(
       .select("*")
       .maybeSingle();
     if (error) throw error;
-    return data ? normalizeRow(data as Rsvp) : null;
+    const row = data ? normalizeRow(data as Rsvp) : null;
+    if (row) logRsvpChange("admin", existing, row, "admin_rsvp_update");
+    return row;
   }
 
   const rows = await readLocal();
@@ -368,6 +439,7 @@ export async function updateRsvpById(
     ...patch,
   } as Rsvp;
   await writeLocal(rows);
+  logRsvpChange("admin", existing, rows[idx], "admin_rsvp_update");
   return rows[idx];
 }
 
@@ -425,12 +497,15 @@ export async function createImportedGuest(input: {
   full_name: string;
   phone: string;
   phoneOnly?: boolean;
+  /** Who created this guest — defaults to admin. */
+  source?: "admin" | "whatsapp";
 }): Promise<Rsvp> {
   const phone = normalizePhone(input.phone);
   if (!phone) throw new Error("INVALID_PHONE");
 
   const fullName = input.full_name.trim();
   if (!fullName) throw new Error("INVALID_NAME");
+  const logSource = input.source ?? "admin";
 
   const conflict = await findGuestAddConflict({
     full_name: fullName,
@@ -478,12 +553,31 @@ export async function createImportedGuest(input: {
       if (error.code === "23505") throw new Error("PHONE_EXISTS");
       throw error;
     }
-    return normalizeRow(data as Rsvp);
+    const created = normalizeRow(data as Rsvp);
+    void appendSystemLog({
+      source: logSource,
+      action: "guest_created",
+      summary: `נוסף אורח · ${created.full_name}`,
+      actor: logSource === "whatsapp" ? "whatsapp" : "admin",
+      guestName: created.full_name,
+      phone: created.phone,
+      rsvpId: created.id,
+    });
+    return created;
   }
 
   const rows = await readLocal();
   rows.push(row);
   await writeLocal(rows);
+  void appendSystemLog({
+    source: logSource,
+    action: "guest_created",
+    summary: `נוסף אורח · ${row.full_name}`,
+    actor: logSource === "whatsapp" ? "whatsapp" : "admin",
+    guestName: row.full_name,
+    phone: row.phone,
+    rsvpId: row.id,
+  });
   return row;
 }
 
@@ -548,12 +642,15 @@ export async function upsertRsvpByPhone(input: {
       .select("*")
       .single();
     if (error) throw error;
-    return normalizeRow(data as Rsvp);
+    const created = normalizeRow(data as Rsvp);
+    logRsvpChange("guest", null, created, "rsvp_create");
+    return created;
   }
 
   const rows = await readLocal();
   rows.push(row);
   await writeLocal(rows);
+  logRsvpChange("guest", null, row, "rsvp_create");
   return row;
 }
 
@@ -573,6 +670,7 @@ export async function updateGuestNameById(
   const name = fullName.trim();
   if (!name || name.length < 2) throw new Error("INVALID_NAME");
 
+  const existing = await getRsvpById(id);
   const timestamp = nowIso();
   if (hasSupabaseConfig()) {
     const { data, error } = await getSupabaseAdmin()
@@ -582,17 +680,43 @@ export async function updateGuestNameById(
       .select("*")
       .maybeSingle();
     if (error) throw error;
-    return data ? normalizeRow(data as Rsvp) : null;
+    const row = data ? normalizeRow(data as Rsvp) : null;
+    if (row && existing && existing.full_name !== row.full_name) {
+      void appendSystemLog({
+        source: "whatsapp",
+        action: "guest_rename",
+        summary: `שינוי שם · ${existing.full_name} → ${row.full_name}`,
+        actor: "whatsapp",
+        guestName: row.full_name,
+        phone: row.phone,
+        rsvpId: row.id,
+        detail: { fromName: existing.full_name, toName: row.full_name },
+      });
+    }
+    return row;
   }
   const rows = await readLocal();
   const idx = rows.findIndex((r) => r.id === id);
   if (idx < 0) return null;
+  const before = rows[idx];
   rows[idx] = {
     ...rows[idx],
     full_name: name,
     updated_at: timestamp,
   };
   await writeLocal(rows);
+  if (before.full_name !== name) {
+    void appendSystemLog({
+      source: "whatsapp",
+      action: "guest_rename",
+      summary: `שינוי שם · ${before.full_name} → ${name}`,
+      actor: "whatsapp",
+      guestName: name,
+      phone: before.phone,
+      rsvpId: before.id,
+      detail: { fromName: before.full_name, toName: name },
+    });
+  }
   return rows[idx];
 }
 
@@ -631,18 +755,12 @@ export async function updateRsvpByToken(
   input: TokenUpdateInput
 ): Promise<PublicInviteView | null> {
   if (!token || token.length < 6) return null;
+  const before = await getRsvpByToken(token);
+  if (!before) return null;
   const timestamp = nowIso();
   const patch = buildRsvpUpdate(input, timestamp);
 
   if (hasSupabaseConfig()) {
-    const existing = await getSupabaseAdmin()
-      .from("rsvps")
-      .select("id")
-      .eq("invite_token", token)
-      .maybeSingle();
-    if (existing.error) throw existing.error;
-    if (!existing.data) return null;
-
     const { data, error } = await getSupabaseAdmin()
       .from("rsvps")
       .update(patch)
@@ -650,7 +768,9 @@ export async function updateRsvpByToken(
       .select("*")
       .single();
     if (error) throw error;
-    return toPublicView(normalizeRow(data as Rsvp));
+    const row = normalizeRow(data as Rsvp);
+    logRsvpChange("guest", before, row, "rsvp_update");
+    return toPublicView(row);
   }
 
   const rows = await readLocal();
@@ -663,6 +783,7 @@ export async function updateRsvpByToken(
     updated_at: timestamp,
   } as Rsvp;
   await writeLocal(rows);
+  logRsvpChange("guest", before, rows[idx], "rsvp_update");
   return toPublicView(rows[idx]);
 }
 

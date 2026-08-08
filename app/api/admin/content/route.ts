@@ -4,6 +4,7 @@ import {
 } from "@/lib/admin-auth";
 import { getSiteContent, saveSiteContent } from "@/lib/site-content";
 import { DEFAULT_SITE_CONTENT, type SiteContent } from "@/lib/site-content-defaults";
+import { appendSystemLog } from "@/lib/system-log";
 
 export const runtime = "nodejs";
 
@@ -58,5 +59,12 @@ export async function PUT(request: Request) {
   }
 
   const content = await saveSiteContent(next);
+  void appendSystemLog({
+    source: "admin",
+    action: "content_save",
+    summary: "עודכן תוכן האתר",
+    actor: "admin",
+    detail: { keys: Object.keys(next) },
+  });
   return Response.json({ ok: true, content });
 }

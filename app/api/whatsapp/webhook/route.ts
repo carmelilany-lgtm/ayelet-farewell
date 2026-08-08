@@ -17,6 +17,7 @@ import {
   findGuestAddConflict,
   renameGuestByPhone,
 } from "@/lib/store";
+import { logWhatsAppOutbound } from "@/lib/system-log";
 import { normalizeGuestName } from "@/lib/types";
 import {
   fetchShortJoke,
@@ -41,6 +42,24 @@ import {
 } from "@/lib/wa-pending-rename";
 
 export const runtime = "nodejs";
+
+async function replyWhatsApp(
+  phone: string,
+  message: string,
+  purpose: string
+) {
+  const result = await sendWhatsAppText(phone, message);
+  void logWhatsAppOutbound({
+    phone,
+    purpose,
+    ok: result.ok,
+    error: result.ok ? undefined : result.error,
+    message,
+    actor: "whatsapp",
+    messageId: result.ok ? result.idMessage : null,
+  });
+  return result;
+}
 
 type GreenWebhookBody = {
   typeWebhook?: string;
@@ -237,7 +256,11 @@ export async function POST(request: Request) {
     if (pending) {
       if (isRenameDecline(text)) {
         await clearPendingRename(replyTo);
-        await sendWhatsAppText(replyTo, buildOrganizerRenameCancelled());
+        await replyWhatsApp(
+          replyTo,
+          buildOrganizerRenameCancelled(),
+          "rename_cancel"
+        );
         return Response.json({ ok: true, renamed: false, cancelled: true });
       }
 
@@ -247,20 +270,22 @@ export async function POST(request: Request) {
       );
       await clearPendingRename(replyTo);
       if (!updated) {
-        await sendWhatsAppText(
+        await replyWhatsApp(
           replyTo,
-          buildOrganizerAddGuestFailure("לא מצאתי את האורח לעדכון.")
+          buildOrganizerAddGuestFailure("לא מצאתי את האורח לעדכון."),
+          "rename_failed"
         );
         return Response.json({ ok: true, renamed: false, error: "NOT_FOUND" });
       }
 
-      await sendWhatsAppText(
+      await replyWhatsApp(
         replyTo,
         buildOrganizerRenameSuccess({
           phone: formatPhoneDisplay(updated.phone),
           oldName: pending.currentName,
           newName: updated.full_name,
-        })
+        }),
+        "rename_success"
       );
       return Response.json({
         ok: true,
@@ -293,12 +318,13 @@ export async function POST(request: Request) {
 
         if (sameName) {
           await clearPendingRename(replyTo);
-          await sendWhatsAppText(
+          await replyWhatsApp(
             replyTo,
             buildOrganizerGuestExistsSameName({
               fullName: conflict.existing.full_name,
               phone: phoneLabel,
-            })
+            }),
+            "add_guest_exists"
           );
         } else {
           await setPendingRename({
@@ -307,13 +333,14 @@ export async function POST(request: Request) {
             currentName: conflict.existing.full_name,
             newName: parsed.fullName,
           });
-          await sendWhatsAppText(
+          await replyWhatsApp(
             replyTo,
             buildOrganizerGuestExistsAskRename({
               currentName: conflict.existing.full_name,
               newName: parsed.fullName,
               phone: phoneLabel,
-            })
+            }),
+            "add_guest_ask_rename"
           );
         }
 
@@ -336,12 +363,14 @@ export async function POST(request: Request) {
           full_name: parsed.fullName,
           phone: parsed.phone,
           phoneOnly: true,
+          source: "whatsapp",
         });
 
         await clearPendingRename(replyTo);
-        await sendWhatsAppText(
+        await replyWhatsApp(
           replyTo,
-          buildOrganizerAddGuestSuccess(guest.full_name)
+          buildOrganizerAddGuestSuccess(guest.full_name),
+          "add_guest_success"
         );
 
         return Response.json({
@@ -355,9 +384,10 @@ export async function POST(request: Request) {
         });
       } catch (err) {
         const code = err instanceof Error ? err.message : "UNKNOWN";
-        await sendWhatsAppText(
+        await replyWhatsApp(
           replyTo,
-          buildOrganizerAddGuestFailure(conflictMessage(code))
+          buildOrganizerAddGuestFailure(conflictMessage(code)),
+          "add_guest_failed"
         );
         console.error("WhatsApp add guest failed", err);
         return Response.json({ ok: true, added: false, error: code });
@@ -390,11 +420,12 @@ export async function POST(request: Request) {
 
   // 4) Almost-add template with bad values.
   if (!fromButton && looksLikeAddGuestTemplate(text)) {
-    await sendWhatsAppText(
+    await replyWhatsApp(
       replyTo,
       buildOrganizerAddGuestFailure(
         "התבנית לא תקינה. שלחו שם בשורה הראשונה ומספר נייד בשורה השנייה."
-      )
+      ),
+      "add_guest_bad_template"
     );
     return Response.json({ ok: true, ignored: "not_add_template" });
   }

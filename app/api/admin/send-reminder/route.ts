@@ -69,7 +69,12 @@ async function sendOne(
     origin,
   });
 
-  const result = await sendWhatsAppTextWithRetry(rsvp.phone, message, 3);
+  const result = await sendWhatsAppTextWithRetry(rsvp.phone, message, 3, {
+    purpose: "reminder",
+    guestName: rsvp.full_name,
+    rsvpId: rsvp.id,
+    actor: "admin",
+  });
   if (!result.ok) {
     return {
       id: rsvp.id,
