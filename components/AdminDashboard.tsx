@@ -18,47 +18,65 @@ const statusLabel: Record<Rsvp["status"], string> = {
 
 type Tab = "guests" | "content";
 
-const CONTENT_FIELDS: {
+type FieldDef = {
   key: keyof SiteContent;
   label: string;
   multiline?: boolean;
+  rows?: number;
   hint?: string;
-}[] = [
-  { key: "quote", label: "ציטוט" },
-  { key: "quoteSource", label: "מקור הציטוט" },
-  { key: "banner", label: "כותרת משנה (eyebrow)" },
-  { key: "title", label: "כותרת ראשית" },
-  { key: "dateTime", label: "תאריך ושעה" },
-  { key: "place", label: "מיקום" },
-  { key: "mapsUrl", label: "קישור ל־Google Maps" },
-  { key: "wazeUrl", label: "קישור ל־Waze" },
-  { key: "bitUrl", label: "קישור לביט" },
-  { key: "bitLabel", label: "טקסט כפתור ביט" },
-  { key: "coverImage", label: "תמונת נושא (נתיב, למשל /invite.jpg)" },
-  { key: "coverCaption", label: "כותרת תמונת נושא" },
-  { key: "ctaLabel", label: "טקסט כפתור ב־Hero" },
-  { key: "programTitle", label: "כותרת תוכנית" },
-  {
-    key: "programItems",
-    label: "פריטי תוכנית (שורה לכל פריט)",
-    multiline: true,
-  },
-  { key: "hosts", label: "הנחייה" },
-  { key: "giftNote", label: "הערת מתנות", multiline: true },
-  { key: "rsvpTitle", label: "כותרת אישור הגעה" },
-  { key: "rsvpLeadHome", label: "טקסט אישור בדף הראשי", multiline: true },
-  { key: "rsvpHelp", label: "טקסט עזרה (לא מצאתם קישור)", multiline: true },
-  {
-    key: "rsvpLeadInvite",
-    label: "טקסט אישי בדף הקישור (השתמשו ב־{name})",
-    multiline: true,
-  },
-  { key: "invalidLinkTitle", label: "כותרת קישור לא תקין" },
-  { key: "invalidLinkBody", label: "תוכן קישור לא תקין", multiline: true },
-  { key: "footer", label: "פוטר" },
-  { key: "reminderIntro", label: "פתיח הודעת WhatsApp", multiline: true },
-  { key: "reminderOutro", label: "סיום הודעת WhatsApp", multiline: true },
-];
+  span2?: boolean;
+};
+
+function Field({
+  field,
+  value,
+  onChange,
+}: {
+  field: FieldDef;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className={`field-row ${field.span2 ? "span-2" : ""}`}>
+      <label htmlFor={field.key}>{field.label}</label>
+      {field.multiline ? (
+        <textarea
+          id={field.key}
+          rows={field.rows ?? 3}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : (
+        <input
+          id={field.key}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+      {field.hint && <p className="field-hint">{field.hint}</p>}
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="content-panel">
+      <div className="content-panel-head">
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
 
 export function AdminDashboard() {
   const [password, setPassword] = useState("");
@@ -75,6 +93,7 @@ export function AdminDashboard() {
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [bulkSending, setBulkSending] = useState(false);
   const [origin, setOrigin] = useState("");
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -105,7 +124,8 @@ export function AdminDashboard() {
 
     if (contentRes.ok) {
       const contentData = await contentRes.json();
-      setContent(contentData.content);
+      setContent({ ...DEFAULT_SITE_CONTENT, ...contentData.content });
+      setDirty(false);
     }
 
     setAuthed(true);
@@ -199,8 +219,8 @@ export function AdminDashboard() {
     }
   }
 
-  async function saveContent(e: React.FormEvent) {
-    e.preventDefault();
+  async function saveContent(e?: React.FormEvent) {
+    e?.preventDefault();
     setSavingContent(true);
     setError(null);
     setInfo(null);
@@ -215,7 +235,8 @@ export function AdminDashboard() {
         setError(data.error || "שגיאה בשמירת תוכן");
         return;
       }
-      setContent(data.content);
+      setContent({ ...DEFAULT_SITE_CONTENT, ...data.content });
+      setDirty(false);
       setInfo("הטקסטים נשמרו ויעודכנו באתר");
     } catch {
       setError("בעיית רשת בשמירת תוכן");
@@ -225,6 +246,8 @@ export function AdminDashboard() {
   }
 
   function updateField(key: keyof SiteContent, value: string) {
+    setDirty(true);
+    setInfo(null);
     if (key === "programItems") {
       setContent((c) => ({
         ...c,
@@ -236,6 +259,11 @@ export function AdminDashboard() {
       return;
     }
     setContent((c) => ({ ...c, [key]: value }));
+  }
+
+  function fieldValue(key: keyof SiteContent) {
+    if (key === "programItems") return content.programItems.join("\n");
+    return String(content[key] ?? "");
   }
 
   if (loading) return <p className="admin-muted">טוען…</p>;
@@ -264,7 +292,7 @@ export function AdminDashboard() {
       <header className="admin-header">
         <div>
           <h1>ניהול התזכורת</h1>
-          <p>אורחים, שליחות WhatsApp ועריכת טקסטים</p>
+          <p>אורחים, שליחות WhatsApp ועריכת כל תוכן האתר</p>
         </div>
         <div className="admin-actions">
           {tab === "guests" && (
@@ -281,6 +309,9 @@ export function AdminDashboard() {
           )}
           <a className="admin-btn ghost" href="/api/admin/rsvps?format=csv">
             ייצוא CSV
+          </a>
+          <a className="admin-btn ghost" href="/" target="_blank" rel="noreferrer">
+            לאתר
           </a>
           <button type="button" className="admin-btn ghost" onClick={logout}>
             יציאה
@@ -301,12 +332,12 @@ export function AdminDashboard() {
           className={`admin-tab ${tab === "content" ? "active" : ""}`}
           onClick={() => setTab("content")}
         >
-          טקסטים באתר
+          תוכן האתר
         </button>
       </nav>
 
-      {error && <p className="form-error">{error}</p>}
-      {info && <p className="form-info">{info}</p>}
+      {error && tab === "guests" && <p className="form-error">{error}</p>}
+      {info && tab === "guests" && <p className="form-info">{info}</p>}
 
       {tab === "guests" && summary && (
         <>
@@ -389,39 +420,250 @@ export function AdminDashboard() {
       )}
 
       {tab === "content" && (
-        <form className="content-form" onSubmit={saveContent}>
-          {CONTENT_FIELDS.map((field) => {
-            const value =
-              field.key === "programItems"
-                ? content.programItems.join("\n")
-                : String(content[field.key] ?? "");
-            return (
-              <div className="field-row" key={field.key}>
-                <label htmlFor={field.key}>{field.label}</label>
-                {field.multiline ? (
-                  <textarea
-                    id={field.key}
-                    rows={field.key === "programItems" ? 5 : 3}
-                    value={value}
-                    onChange={(e) => updateField(field.key, e.target.value)}
-                  />
-                ) : (
-                  <input
-                    id={field.key}
-                    value={value}
-                    onChange={(e) => updateField(field.key, e.target.value)}
-                  />
-                )}
+        <form className="content-form content-layout" onSubmit={saveContent}>
+          <Panel
+            title="כותרת עליונה"
+            description="מה שמופיע מעל התמונה — ציטוט, כותרת, תאריך ומקום"
+          >
+            <div className="content-grid two">
+              {(
+                [
+                  { key: "quote", label: "ציטוט", span2: true },
+                  { key: "quoteSource", label: "מקור הציטוט" },
+                  { key: "banner", label: "כותרת משנה קטנה", hint: "למשל: הזמנה אישית" },
+                  { key: "title", label: "כותרת ראשית" },
+                  { key: "dateTime", label: "תאריך ושעה" },
+                  { key: "place", label: "מיקום" },
+                  { key: "ctaLabel", label: "טקסט כפתור לאישור הגעה" },
+                  {
+                    key: "coverImage",
+                    label: "תמונת רקע",
+                    hint: "נתיב באתר, למשל /invite.jpg",
+                  },
+                ] as FieldDef[]
+              ).map((field) => (
+                <Field
+                  key={field.key}
+                  field={field}
+                  value={fieldValue(field.key)}
+                  onChange={(v) => updateField(field.key, v)}
+                />
+              ))}
+            </div>
+          </Panel>
+
+          <Panel
+            title="תוכנית הערב"
+            description="פרטי האירוע שמופיעים מתחת לכותרת"
+          >
+            <div className="content-grid">
+              <Field
+                field={{ key: "programTitle", label: "כותרת התוכנית" }}
+                value={fieldValue("programTitle")}
+                onChange={(v) => updateField("programTitle", v)}
+              />
+              <Field
+                field={{
+                  key: "programItems",
+                  label: "פריטי תוכנית",
+                  multiline: true,
+                  rows: 5,
+                  hint: "שורה אחת לכל פריט",
+                }}
+                value={fieldValue("programItems")}
+                onChange={(v) => updateField("programItems", v)}
+              />
+              <Field
+                field={{ key: "hosts", label: "הנחייה" }}
+                value={fieldValue("hosts")}
+                onChange={(v) => updateField("hosts", v)}
+              />
+              <Field
+                field={{
+                  key: "giftNote",
+                  label: "הערת מתנות / ביט",
+                  multiline: true,
+                  rows: 3,
+                }}
+                value={fieldValue("giftNote")}
+                onChange={(v) => updateField("giftNote", v)}
+              />
+            </div>
+          </Panel>
+
+          <Panel
+            title="קישורים"
+            description="Waze, Maps וביט — השאירו קישור ריק כדי להסתיר אותו"
+          >
+            <div className="content-grid two">
+              <Field
+                field={{ key: "linksTitle", label: "כותרת אזור הקישורים", span2: true }}
+                value={fieldValue("linksTitle")}
+                onChange={(v) => updateField("linksTitle", v)}
+              />
+              <Field
+                field={{ key: "wazeLabel", label: "טקסט Waze" }}
+                value={fieldValue("wazeLabel")}
+                onChange={(v) => updateField("wazeLabel", v)}
+              />
+              <Field
+                field={{ key: "wazeUrl", label: "קישור Waze" }}
+                value={fieldValue("wazeUrl")}
+                onChange={(v) => updateField("wazeUrl", v)}
+              />
+              <Field
+                field={{ key: "mapsLabel", label: "טקסט Maps" }}
+                value={fieldValue("mapsLabel")}
+                onChange={(v) => updateField("mapsLabel", v)}
+              />
+              <Field
+                field={{ key: "mapsUrl", label: "קישור Google Maps" }}
+                value={fieldValue("mapsUrl")}
+                onChange={(v) => updateField("mapsUrl", v)}
+              />
+              <Field
+                field={{ key: "bitLabel", label: "טקסט ביט" }}
+                value={fieldValue("bitLabel")}
+                onChange={(v) => updateField("bitLabel", v)}
+              />
+              <Field
+                field={{
+                  key: "bitUrl",
+                  label: "קישור ביט",
+                  hint: "חשוב למלא כדי שיופיע בדף",
+                }}
+                value={fieldValue("bitUrl")}
+                onChange={(v) => updateField("bitUrl", v)}
+              />
+            </div>
+          </Panel>
+
+          <Panel
+            title="אישור הגעה"
+            description="טקסטים באזור ה־RSVP בדף הראשי ובקישורים אישיים"
+          >
+            <div className="content-grid">
+              <Field
+                field={{ key: "rsvpTitle", label: "כותרת אזור האישור" }}
+                value={fieldValue("rsvpTitle")}
+                onChange={(v) => updateField("rsvpTitle", v)}
+              />
+              <Field
+                field={{
+                  key: "rsvpLeadHome",
+                  label: "טקסט הסבר בדף הראשי",
+                  multiline: true,
+                }}
+                value={fieldValue("rsvpLeadHome")}
+                onChange={(v) => updateField("rsvpLeadHome", v)}
+              />
+              <Field
+                field={{
+                  key: "rsvpHelp",
+                  label: "טקסט עזרה (לא מצאתם את עצמכם)",
+                  multiline: true,
+                }}
+                value={fieldValue("rsvpHelp")}
+                onChange={(v) => updateField("rsvpHelp", v)}
+              />
+              <Field
+                field={{
+                  key: "confirmPrompt",
+                  label: "הודעת האישור האישית",
+                  multiline: true,
+                  rows: 4,
+                  hint: "מופיעה לפני טופס אישור ההגעה",
+                }}
+                value={fieldValue("confirmPrompt")}
+                onChange={(v) => updateField("confirmPrompt", v)}
+              />
+              <Field
+                field={{
+                  key: "rsvpLeadInvite",
+                  label: "טקסט בדף קישור אישי",
+                  multiline: true,
+                  hint: "אפשר להשתמש ב־{name} לשם האורח/ת",
+                }}
+                value={fieldValue("rsvpLeadInvite")}
+                onChange={(v) => updateField("rsvpLeadInvite", v)}
+              />
+              <div className="content-grid two">
+                <Field
+                  field={{ key: "invalidLinkTitle", label: "כותרת קישור לא תקין" }}
+                  value={fieldValue("invalidLinkTitle")}
+                  onChange={(v) => updateField("invalidLinkTitle", v)}
+                />
+                <Field
+                  field={{
+                    key: "invalidLinkBody",
+                    label: "תוכן קישור לא תקין",
+                    multiline: true,
+                  }}
+                  value={fieldValue("invalidLinkBody")}
+                  onChange={(v) => updateField("invalidLinkBody", v)}
+                />
               </div>
-            );
-          })}
-          <div className="content-actions">
-            <button type="submit" className="admin-btn" disabled={savingContent}>
-              {savingContent ? "שומר…" : "שמירת טקסטים"}
-            </button>
-            <a className="admin-btn ghost" href="/" target="_blank" rel="noreferrer">
-              תצוגה מקדימה
-            </a>
+            </div>
+          </Panel>
+
+          <Panel
+            title="WhatsApp ופוטר"
+            description="הודעות תזכורת ושורה בתחתית האתר"
+          >
+            <div className="content-grid">
+              <Field
+                field={{
+                  key: "reminderIntro",
+                  label: "פתיח הודעת תזכורת",
+                  multiline: true,
+                }}
+                value={fieldValue("reminderIntro")}
+                onChange={(v) => updateField("reminderIntro", v)}
+              />
+              <Field
+                field={{
+                  key: "reminderOutro",
+                  label: "סיום הודעת תזכורת",
+                  multiline: true,
+                }}
+                value={fieldValue("reminderOutro")}
+                onChange={(v) => updateField("reminderOutro", v)}
+              />
+              <Field
+                field={{ key: "footer", label: "פוטר בתחתית האתר" }}
+                value={fieldValue("footer")}
+                onChange={(v) => updateField("footer", v)}
+              />
+            </div>
+          </Panel>
+
+          <div className="content-sticky-bar">
+            <p
+              className={`save-status ${error ? "err" : info && !dirty ? "ok" : ""}`}
+            >
+              {error
+                ? error
+                : dirty
+                  ? "יש שינויים שלא נשמרו"
+                  : info || "הכול מעודכן"}
+            </p>
+            <div className="content-actions">
+              <a
+                className="admin-btn ghost"
+                href="/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                תצוגה מקדימה
+              </a>
+              <button
+                type="submit"
+                className="admin-btn primary"
+                disabled={savingContent || !dirty}
+              >
+                {savingContent ? "שומר…" : "שמירת שינויים"}
+              </button>
+            </div>
           </div>
         </form>
       )}

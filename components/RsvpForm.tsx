@@ -9,9 +9,11 @@ type Status = Exclude<RsvpStatus, "imported">;
 type Props = {
   token: string;
   invite: PublicInviteView;
+  lead?: string;
+  confirmPrompt?: string;
 };
 
-export function RsvpForm({ token, invite }: Props) {
+export function RsvpForm({ token, invite, lead, confirmPrompt }: Props) {
   const initialStatus: Status =
     invite.status === "imported" ? "confirmed" : (invite.status as Status);
 
@@ -83,7 +85,12 @@ export function RsvpForm({ token, invite }: Props) {
       <p className="invitee-name">
         שלום <strong>{invite.full_name}</strong>
       </p>
-      <p className="confirm-prompt">{CONFIRM_PROMPT}</p>
+      {lead && (
+        <p className="rsvp-lead">
+          {lead.replace("{name}", invite.full_name)}
+        </p>
+      )}
+      <p className="confirm-prompt">{confirmPrompt || CONFIRM_PROMPT}</p>
       {invite.already_final && (
         <p className="rsvp-lead">
           כבר שלחתם אישור — אפשר לעדכן שוב אם משהו השתנה.

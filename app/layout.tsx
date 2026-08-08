@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
-import { Heebo } from "next/font/google";
+import { Frank_Ruhl_Libre, Heebo } from "next/font/google";
 import "./globals.css";
 
 const heebo = Heebo({
   subsets: ["hebrew", "latin"],
   weight: ["300", "400", "500", "600", "700"],
   variable: "--font-heebo",
+  display: "swap",
+});
+
+const frank = Frank_Ruhl_Libre({
+  subsets: ["hebrew", "latin"],
+  weight: ["400", "500", "700"],
+  variable: "--font-display",
   display: "swap",
 });
 
@@ -31,7 +38,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="he" dir="rtl" className={`${heebo.variable} h-full`}>
+    <html
+      lang="he"
+      dir="rtl"
+      className={`${heebo.variable} ${frank.variable} h-full`}
+    >
       <body className="min-h-full antialiased">{children}</body>
     </html>
   );

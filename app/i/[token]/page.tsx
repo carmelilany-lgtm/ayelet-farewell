@@ -34,7 +34,12 @@ export default async function InvitePage({ params }: Props) {
             </div>
           ) : (
             <>
-              <InvitePageClient token={token} invite={invite} />
+              <InvitePageClient
+                token={token}
+                invite={invite}
+                lead={content.rsvpLeadInvite}
+                confirmPrompt={content.confirmPrompt}
+              />
             </>
           )}
         </div>

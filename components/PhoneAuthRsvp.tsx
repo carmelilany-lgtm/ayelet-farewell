@@ -20,7 +20,13 @@ type Guest = {
 
 type Step = "phone" | "code" | "confirm";
 
-export function PhoneAuthRsvp() {
+type Props = {
+  lead?: string;
+  help?: string;
+  confirmPrompt?: string;
+};
+
+export function PhoneAuthRsvp({ lead, help, confirmPrompt }: Props) {
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -181,7 +187,8 @@ export function PhoneAuthRsvp() {
   if (step === "phone") {
     return (
       <form className="rsvp-form animate-fade-up" onSubmit={sendOtp}>
-        <p className="confirm-prompt">{CONFIRM_PROMPT}</p>
+        {lead && <p className="rsvp-lead">{lead}</p>}
+        <p className="confirm-prompt">{confirmPrompt || CONFIRM_PROMPT}</p>
         <div className="field">
           <label htmlFor="phone">מספר טלפון</label>
           <input
@@ -203,6 +210,7 @@ export function PhoneAuthRsvp() {
         <button type="submit" className="submit-btn" disabled={busy}>
           {busy ? "שולח…" : "שלחו לי קוד ב־WhatsApp"}
         </button>
+        {help && <p className="rsvp-lead">{help}</p>}
       </form>
     );
   }
@@ -240,6 +248,7 @@ export function PhoneAuthRsvp() {
           className="link-btn ghost"
           onClick={() => {
             setStep("phone");
+            setCode("");
             setError(null);
           }}
         >
@@ -256,7 +265,7 @@ export function PhoneAuthRsvp() {
       <p className="invitee-name">
         שלום <strong>{guest.full_name}</strong>
       </p>
-      <p className="confirm-prompt">{CONFIRM_PROMPT}</p>
+      <p className="confirm-prompt">{confirmPrompt || CONFIRM_PROMPT}</p>
       {guest.already_final && (
         <p className="rsvp-lead">כבר שלחתם אישור — אפשר לעדכן שוב.</p>
       )}

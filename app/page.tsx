@@ -14,7 +14,11 @@ export default async function HomePage() {
           <h2 id="rsvp-title" className="section-title">
             {content.rsvpTitle}
           </h2>
-          <PhoneAuthRsvp />
+          <PhoneAuthRsvp
+            lead={content.rsvpLeadHome}
+            help={content.rsvpHelp}
+            confirmPrompt={content.confirmPrompt}
+          />
         </div>
       </section>
     </InvitationShell>
