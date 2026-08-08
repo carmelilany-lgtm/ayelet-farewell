@@ -341,7 +341,8 @@ export async function POST(request: Request) {
       replyTo,
       menu.message,
       menu.buttons,
-      menu.footer
+      menu.footer,
+      menu.textFallback
     );
     return Response.json({
       ok: true,

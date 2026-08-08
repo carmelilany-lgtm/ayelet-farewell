@@ -344,7 +344,8 @@ export async function sendWhatsAppReplyButtonsWithFallback(
   phone: string,
   body: string,
   buttons: ReplyButton[] | undefined,
-  footer?: string
+  footer?: string,
+  textFallback?: string
 ): Promise<GreenSendResult> {
   if (buttons && buttons.length > 0) {
     const resolved = await ensureWhatsAppChat(phone);
@@ -372,7 +373,7 @@ export async function sendWhatsAppReplyButtonsWithFallback(
       await sleep(400);
     }
   }
-  return sendWhatsAppTextWithRetry(phone, body, 2);
+  return sendWhatsAppTextWithRetry(phone, textFallback || body, 2);
 }
 
 export function organizerNotifyPhone(): string {
