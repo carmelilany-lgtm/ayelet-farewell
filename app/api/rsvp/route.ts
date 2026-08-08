@@ -185,10 +185,16 @@ export async function POST(request: Request) {
       const invite = await updateRsvpByToken(parsed.data.token, {
         guest_count: count,
         status: parsed.data.status,
-        notes: parsed.data.notes ?? null,
-        wants_video_blessing: parsed.data.wants_video_blessing ?? null,
-        wants_to_speak: parsed.data.wants_to_speak ?? null,
-        excitement: parsed.data.excitement ?? null,
+        ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes } : {}),
+        ...(parsed.data.wants_video_blessing !== undefined
+          ? { wants_video_blessing: parsed.data.wants_video_blessing }
+          : {}),
+        ...(parsed.data.wants_to_speak !== undefined
+          ? { wants_to_speak: parsed.data.wants_to_speak }
+          : {}),
+        ...(parsed.data.excitement !== undefined
+          ? { excitement: parsed.data.excitement }
+          : {}),
       });
       if (!invite) {
         return Response.json(
@@ -227,10 +233,16 @@ export async function POST(request: Request) {
       const existing = await updateRsvpByPhone(sessionPhone, {
         guest_count: count,
         status: parsed.data.status,
-        notes: parsed.data.notes ?? null,
-        wants_video_blessing: parsed.data.wants_video_blessing ?? null,
-        wants_to_speak: parsed.data.wants_to_speak ?? null,
-        excitement: parsed.data.excitement ?? null,
+        ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes } : {}),
+        ...(parsed.data.wants_video_blessing !== undefined
+          ? { wants_video_blessing: parsed.data.wants_video_blessing }
+          : {}),
+        ...(parsed.data.wants_to_speak !== undefined
+          ? { wants_to_speak: parsed.data.wants_to_speak }
+          : {}),
+        ...(parsed.data.excitement !== undefined
+          ? { excitement: parsed.data.excitement }
+          : {}),
       });
 
       if (existing) {

@@ -268,9 +268,13 @@ function buildRsvpUpdate(input: TokenUpdateInput, timestamp: string) {
   const patch: Record<string, unknown> = {
     guest_count: input.guest_count,
     status: input.status,
-    notes: input.notes ?? null,
     final_confirmed_at: timestamp,
   };
+
+  // Preserve Google Sheet answers unless the client explicitly sent new values.
+  if (input.notes !== undefined) {
+    patch.notes = input.notes;
+  }
   if (input.wants_video_blessing !== undefined) {
     patch.wants_video_blessing = input.wants_video_blessing;
   }
@@ -685,10 +689,16 @@ export async function importRsvps(rows: RsvpImportRow[]): Promise<{
           Boolean(existing.data.final_confirmed_at) ||
           existing.data.status !== "imported";
         if (locked) {
-          // Keep confirmation intact; only sync sheet order for admin list.
+          // Keep confirmation intact; refresh sheet answers for organizers.
           const { error } = await getSupabaseAdmin()
             .from("rsvps")
-            .update({ sheet_order: row.sheet_order })
+            .update({
+              sheet_order: row.sheet_order,
+              wants_video_blessing: row.wants_video_blessing,
+              wants_to_speak: row.wants_to_speak,
+              excitement: row.excitement,
+              notes: row.notes,
+            })
             .eq("phone", row.phone);
           if (error) throw error;
           skipped += 1;
@@ -744,6 +754,10 @@ export async function importRsvps(rows: RsvpImportRow[]): Promise<{
         byPhone.set(row.phone, {
           ...existing,
           sheet_order: row.sheet_order,
+          wants_video_blessing: row.wants_video_blessing,
+          wants_to_speak: row.wants_to_speak,
+          excitement: row.excitement,
+          notes: row.notes,
         });
         skipped += 1;
         continue;

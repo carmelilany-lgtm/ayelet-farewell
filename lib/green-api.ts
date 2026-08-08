@@ -473,8 +473,8 @@ export async function sendWhatsAppListMessage(
 }
 
 /**
- * Meta pattern: ≤3 reply buttons; 3–10 list message; else numbered text.
- * On Green API, list may be unavailable → numbered text + nav buttons.
+ * Meta: ≤3 reply buttons; more choices → numbered text + nav buttons.
+ * Green API list messages are unreliable (empty UI / false success) — skip them.
  */
 export async function sendOrganizerMenuMessage(
   phone: string,
@@ -483,46 +483,16 @@ export async function sendOrganizerMenuMessage(
     textFallback?: string;
     buttons?: ReplyButton[];
     footer?: string;
-    /** When set (3–10 rows), try list message first for the choices. */
+    /** @deprecated Unused — list UI is unreliable on Green API. */
     list?: {
-      /** Body without numbered choices (cleaner list UI). */
       body?: string;
       buttonText: string;
       title?: string;
       sections: ListSection[];
-      /** Nav buttons sent after a successful list (אחורה / הבא / …). */
       navButtons?: ReplyButton[];
     };
   }
 ): Promise<GreenSendResult> {
-  const resolved = await ensureWhatsAppChat(phone);
-  await sleep(200);
-
-  if (opts.list && opts.list.sections.some((s) => s.rows.length > 0)) {
-    const listSent = await sendWhatsAppListMessage(
-      phone,
-      {
-        body: opts.list.body || opts.body,
-        buttonText: opts.list.buttonText,
-        sections: opts.list.sections,
-        title: opts.list.title,
-        footer: opts.footer,
-      },
-      resolved
-    );
-    if (listSent.ok) {
-      if (opts.list.navButtons && opts.list.navButtons.length > 0) {
-        await sleep(400);
-        await sendWhatsAppReplyButtonsWithFallback(
-          phone,
-          "ניווט:",
-          opts.list.navButtons
-        );
-      }
-      return listSent;
-    }
-  }
-
   return sendWhatsAppReplyButtonsWithFallback(
     phone,
     opts.body,

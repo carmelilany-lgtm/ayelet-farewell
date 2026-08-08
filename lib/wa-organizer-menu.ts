@@ -24,10 +24,9 @@ import {
 
 /**
  * Meta WhatsApp interactive guidance:
- * - Reply buttons: up to 3 quick choices
- * - List message: 3–10 choices (preferred for "many")
- * Green API list is currently broken (403) → numbered text + nav buttons.
- * PAGE_SIZE ≤8 so text fallback can use 9=home, 10/11=paging without clashing.
+ * - Reply buttons: up to 3 quick choices (we use ≤2 guests + nav)
+ * - More choices: numbered text + nav buttons
+ * (Green API list messages are unreliable — do not use.)
  */
 const PAGE_SIZE = 8;
 const MAIN_PAGE_COUNT = 4;
@@ -289,18 +288,21 @@ ${more.length ? `\n${more.join("\n")}\n` : ""}
 ${navFooter({ backIsHome })}`;
 }
 
-/** Clean body for interactive list (no numbers). */
-function renderListPickerBody(
-  screen: Extract<MenuScreen, { id: "list" }>
-): string {
-  const { start, slice, total } = pageSlice(screen.ids, screen.page);
-  const title = listTitle(screen.filter);
-  return `*${title}* (${total})
-עמוד ${screen.page + 1} · ${start + 1}–${start + slice.length}
-
-בחרו אורח מהרשימה.`;
+function formatWhen(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("he-IL", {
+    timeZone: "Asia/Jerusalem",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
+/** Organizer-only guest card (WhatsApp menu). Includes Google Sheet answers when present. */
 export function formatGuestFull(
   guest: Rsvp,
   forButtons = true,
@@ -308,23 +310,46 @@ export function formatGuestFull(
 ): string {
   const siteUrl = siteAbsoluteUrl();
   const link = inviteAbsoluteUrl(guest.invite_token, siteUrl);
-  const manual = isManualPendingGuest(guest) ? "כן" : "לא";
   const lines = [
     `*${guest.full_name}*`,
     `טלפון: ${formatPhoneDisplay(guest.phone)}`,
     `סטטוס: ${STATUS_LABEL[guest.status]}`,
     `מספר אורחים: ${guest.status === "declined" ? 0 : guest.guest_count}`,
-    `נוסף ידנית (ממתין): ${manual}`,
-    `אישור סופי: ${guest.final_confirmed_at || "—"}`,
-    `תזכורת: ${guest.reminder_sent_at ? `נשלחה (${guest.reminder_sent_at})` : "לא נשלחה"}`,
-    `ברכת וידאו: ${guest.wants_video_blessing || "—"}`,
-    `רוצה לדבר: ${guest.wants_to_speak || "—"}`,
-    `התרגשות: ${guest.excitement ?? "—"}`,
-    `הערות: ${guest.notes?.trim() || "—"}`,
-    `קישור אישי:\n${link}`,
-    `עודכן: ${guest.updated_at}`,
-    `נוצר: ${guest.created_at}`,
   ];
+
+  if (isManualPendingGuest(guest)) {
+    lines.push("נוסף ידנית (ממתין): כן");
+  }
+
+  lines.push(
+    `אישור סופי: ${formatWhen(guest.final_confirmed_at)}`,
+    `תזכורת: ${
+      guest.reminder_sent_at
+        ? `נשלחה (${formatWhen(guest.reminder_sent_at)})`
+        : "לא נשלחה"
+    }`
+  );
+
+  const sheetLines: string[] = [];
+  if (guest.wants_video_blessing?.trim()) {
+    sheetLines.push(`ברכת וידאו: ${guest.wants_video_blessing.trim()}`);
+  }
+  if (guest.wants_to_speak?.trim()) {
+    sheetLines.push(`רוצה לדבר: ${guest.wants_to_speak.trim()}`);
+  }
+  if (guest.excitement != null) {
+    sheetLines.push(`התרגשות: ${guest.excitement}`);
+  }
+  if (guest.notes?.trim()) {
+    sheetLines.push(`הערות: ${guest.notes.trim()}`);
+  }
+
+  if (sheetLines.length > 0) {
+    lines.push("", "*מהשיטס / הטופס:*", ...sheetLines);
+  }
+
+  lines.push("", `קישור אישי:\n${link}`);
+
   const body = lines.join("\n");
   return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
 }
@@ -400,8 +425,6 @@ async function renderScreen(
     case "list": {
       const { slice, hasMore, hasPrev } = pageSlice(screen.ids, screen.page);
       const useGuestButtons = slice.length > 0 && slice.length <= GUEST_BUTTON_MAX;
-      const useGuestList =
-        slice.length >= 3 && slice.length <= 10 && !useGuestButtons;
       const pageNav = { hasPrev, hasNext: hasMore, backIsHome };
       let buttons: ReplyButton[];
       if (slice.length === 0) {
@@ -425,37 +448,14 @@ async function renderScreen(
           }
         }
       } else {
+        // 3+ guests: numbered text (Green API list is unreliable) + nav buttons.
         buttons = navButtons(pageNav);
       }
-
-      const list: MenuReply["list"] | undefined = useGuestList
-        ? {
-            body: renderListPickerBody(screen),
-            buttonText: "בחרו אורח",
-            title: listTitle(screen.filter).slice(0, 60),
-            sections: [
-              {
-                title: "אורחים",
-                rows: slice.map((id, i) => {
-                  const g = byId.get(id);
-                  const phone = g ? formatPhoneDisplay(g.phone) : "";
-                  return {
-                    rowId: `g${i}`,
-                    title: shortName(g?.full_name || `אורח ${i + 1}`),
-                    ...(phone ? { description: phone } : {}),
-                  };
-                }),
-              },
-            ],
-            navButtons: navButtons(pageNav),
-          }
-        : undefined;
 
       return {
         message: renderList(screen, byId, true, backIsHome),
         textFallback: renderList(screen, byId, false, backIsHome),
         buttons,
-        list,
       };
     }
     case "guest": {
@@ -758,7 +758,7 @@ export async function handleOrganizerMenu(opts: {
 
   const choice = parseChoice(text);
   if (choice === null) {
-    // Unknown button on non-main screens → gentle hint with nav buttons
+    // Unknown input while menu session is open
     if (session.screen.id !== "main") {
       const rendered = await renderScreen(
         session.screen,
@@ -768,7 +768,9 @@ export async function handleOrganizerMenu(opts: {
       return {
         handled: true,
         message: `לא הבנתי. השתמשו בכפתורים.\n\n${rendered.message}`,
-        textFallback: rendered.textFallback,
+        textFallback: rendered.textFallback
+          ? `לא הבנתי. השתמשו בכפתורים.\n\n${rendered.textFallback}`
+          : "לא הבנתי",
         buttons: rendered.buttons,
         footer: rendered.footer,
         list: rendered.list,
@@ -782,7 +784,9 @@ export async function handleOrganizerMenu(opts: {
     return {
       handled: true,
       message: `לא הבנתי. בחרו כפתור מהתפריט.\n\n${rendered.message}`,
-      textFallback: rendered.textFallback,
+      textFallback: rendered.textFallback
+        ? `לא הבנתי. בחרו כפתור מהתפריט.\n\n${rendered.textFallback}`
+        : "לא הבנתי",
       buttons: rendered.buttons,
       footer: rendered.footer,
       list: rendered.list,
