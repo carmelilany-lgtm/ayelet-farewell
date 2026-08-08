@@ -43,3 +43,8 @@ next-env.d.ts
 # local RSVP store (keep folder)
 /data/*.json
 !/data/.gitkeep
+
+# supabase
+.branches
+.temp
+
