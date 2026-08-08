@@ -31,6 +31,11 @@ const CONTENT_FIELDS: {
   { key: "dateTime", label: "תאריך ושעה" },
   { key: "place", label: "מיקום" },
   { key: "mapsUrl", label: "קישור ל־Google Maps" },
+  { key: "wazeUrl", label: "קישור ל־Waze" },
+  { key: "bitUrl", label: "קישור לביט" },
+  { key: "bitLabel", label: "טקסט כפתור ביט" },
+  { key: "coverImage", label: "תמונת נושא (נתיב, למשל /invite.jpg)" },
+  { key: "coverCaption", label: "כותרת תמונת נושא" },
   { key: "ctaLabel", label: "טקסט כפתור ב־Hero" },
   { key: "programTitle", label: "כותרת תוכנית" },
   {

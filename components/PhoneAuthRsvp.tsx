@@ -12,6 +12,9 @@ type Guest = {
   guest_count: number;
   status: RsvpStatus;
   notes: string | null;
+  wants_video_blessing?: string | null;
+  wants_to_speak?: string | null;
+  excitement?: number | null;
   already_final: boolean;
 };
 
@@ -25,6 +28,9 @@ export function PhoneAuthRsvp() {
   const [status, setStatus] = useState<Status>("confirmed");
   const [guestCount, setGuestCount] = useState(1);
   const [notes, setNotes] = useState("");
+  const [video, setVideo] = useState("");
+  const [speak, setSpeak] = useState("");
+  const [excitement, setExcitement] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +45,11 @@ export function PhoneAuthRsvp() {
           setGuest(data.guest);
           setGuestCount(Math.max(data.guest.guest_count || 1, 1));
           setNotes(data.guest.notes || "");
+          setVideo(data.guest.wants_video_blessing || "");
+          setSpeak(data.guest.wants_to_speak || "");
+          setExcitement(
+            data.guest.excitement ? String(data.guest.excitement) : ""
+          );
           setStatus(
             data.guest.status === "imported"
               ? "confirmed"
@@ -91,6 +102,11 @@ export function PhoneAuthRsvp() {
       setGuest(data.guest);
       setGuestCount(Math.max(data.guest.guest_count || 1, 1));
       setNotes(data.guest.notes || "");
+      setVideo(data.guest.wants_video_blessing || "");
+      setSpeak(data.guest.wants_to_speak || "");
+      setExcitement(
+        data.guest.excitement ? String(data.guest.excitement) : ""
+      );
       setStatus(
         data.guest.status === "imported"
           ? "confirmed"
@@ -116,6 +132,9 @@ export function PhoneAuthRsvp() {
           guest_count: guestCount,
           status,
           notes: notes.trim() || null,
+          wants_video_blessing: video.trim() || null,
+          wants_to_speak: speak.trim() || null,
+          excitement: excitement ? Number(excitement) : null,
         }),
       });
       const data = await res.json();
@@ -287,7 +306,49 @@ export function PhoneAuthRsvp() {
       )}
 
       <div className="field">
-        <label htmlFor="notes">הערות (אופציונלי)</label>
+        <label htmlFor="video">הקלטה מצולמת לברכה?</label>
+        <select
+          id="video"
+          value={video}
+          onChange={(e) => setVideo(e.target.value)}
+        >
+          <option value="">לא צוין</option>
+          <option value="כן, אשמח">כן, אשמח</option>
+          <option value="לא, תודה">לא, תודה</option>
+        </select>
+      </div>
+
+      <div className="field">
+        <label htmlFor="speak">לברך / לשאת דברים באירוע?</label>
+        <select
+          id="speak"
+          value={speak}
+          onChange={(e) => setSpeak(e.target.value)}
+        >
+          <option value="">לא צוין</option>
+          <option value="כן">כן</option>
+          <option value="לא">לא</option>
+        </select>
+      </div>
+
+      <div className="field">
+        <label htmlFor="excitement">כמה את/ה נרגש/ת? (1–5)</label>
+        <select
+          id="excitement"
+          value={excitement}
+          onChange={(e) => setExcitement(e.target.value)}
+        >
+          <option value="">לא צוין</option>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="field">
+        <label htmlFor="notes">הערות / בקשות מיוחדות</label>
         <textarea
           id="notes"
           rows={3}

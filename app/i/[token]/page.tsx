@@ -1,6 +1,5 @@
 import { InvitationShell } from "@/components/InvitationShell";
 import { InvitePageClient } from "@/components/InvitePageClient";
-import { CONFIRM_PROMPT } from "@/lib/copy";
 import { getSiteContent } from "@/lib/site-content";
 import { getInviteByToken } from "@/lib/store";
 
@@ -35,7 +34,6 @@ export default async function InvitePage({ params }: Props) {
             </div>
           ) : (
             <>
-              <p className="confirm-prompt">{CONFIRM_PROMPT}</p>
               <InvitePageClient token={token} invite={invite} />
             </>
           )}

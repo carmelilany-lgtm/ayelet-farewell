@@ -20,6 +20,11 @@ export type SiteContent = {
   reminderIntro: string;
   reminderOutro: string;
   mapsUrl: string;
+  wazeUrl: string;
+  bitUrl: string;
+  bitLabel: string;
+  coverImage: string;
+  coverCaption: string;
 };
 
 export const DEFAULT_SITE_CONTENT: SiteContent = {
@@ -29,7 +34,7 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   title: "מסיבת פרידה",
   dateTime: "7 בספטמבר, 2026 | 18:00–21:00",
   place: "תחנת רוח, כיכר בן גוריון 1, טבעון",
-  programTitle: "תוכנית הערב",
+  programTitle: "תוכנית לערב",
   programItems: [
     "ברכות ומוזיקה",
     "ארוחת ערב גורמה טבעוני־צמחוני (לונא ביסטרו)",
@@ -37,13 +42,13 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   ],
   hosts: "הנחייה: אורטל ברקה וכרמל אילני",
   giftNote:
-    "לא להביא מתנות. השתתפותכם היא המתנה. אפשר יהיה להפקיד ברכות והשתתפות בעלויות בתיבה במקום.",
+    "לא להביא מתנות. השתתפותכם היא המתנה. אפשר יהיה להפקיד ברכות והשתתפות בעלויות בתיבה במקום — או דרך ביט.",
   rsvpTitle: "אישור הגעה סופי",
   rsvpLeadHome:
     "התחברו עם מספר הטלפון שלכם — נשלח קוד אימות ב־WhatsApp, ואז תוכלו לאשר הגעה סופית.",
   rsvpHelp: "לא מצאתם את עצמכם? פנו לאורטל או לכרמל.",
   rsvpLeadInvite:
-    "שלום {name} — עדכנו אם תגיעו, כדי שנוכל לסגור ארוחה ומקומות.",
+    "שלום {name} — עדכנו את הפרטים שלכם ואשרו הגעה סופית.",
   invalidLinkTitle: "הקישור לא תקין",
   invalidLinkBody:
     "הקישור האישי לא נמצא. אפשר להתחבר מהעמוד הראשי עם מספר הטלפון.",
@@ -53,4 +58,10 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   reminderOutro: "מצפה לראותך 🤍\nאיילת",
   mapsUrl:
     "https://www.google.com/maps/search/?api=1&query=תחנת+רוח+כיכר+בן+גוריון+1+טבעון",
+  wazeUrl:
+    "https://waze.com/ul?q=%D7%AA%D7%97%D7%A0%D7%AA%20%D7%A8%D7%95%D7%97%20%D7%9B%D7%99%D7%9B%D7%A8%20%D7%91%D7%9F%20%D7%92%D7%95%D7%A8%D7%99%D7%95%D7%9F%201%20%D7%98%D7%91%D7%A2%D7%95%D7%9F&navigate=yes",
+  bitUrl: "",
+  bitLabel: "השתתפות בעלויות בביט",
+  coverImage: "/invite.jpg",
+  coverCaption: "תמונת נושא",
 };

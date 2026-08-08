@@ -76,6 +76,9 @@ function toPublicView(row: Rsvp): PublicInviteView {
     guest_count: Math.max(row.guest_count, 1),
     status: row.status,
     notes: row.notes,
+    wants_video_blessing: row.wants_video_blessing,
+    wants_to_speak: row.wants_to_speak,
+    excitement: row.excitement,
     already_final: Boolean(row.final_confirmed_at),
   };
 }
@@ -162,21 +165,36 @@ export async function getRsvpByPhone(phone: string): Promise<Rsvp | null> {
   return rows.find((r) => r.phone === phone) ?? null;
 }
 
+function buildRsvpUpdate(input: TokenUpdateInput, timestamp: string) {
+  const patch: Record<string, unknown> = {
+    guest_count: input.guest_count,
+    status: input.status,
+    notes: input.notes ?? null,
+    final_confirmed_at: timestamp,
+  };
+  if (input.wants_video_blessing !== undefined) {
+    patch.wants_video_blessing = input.wants_video_blessing;
+  }
+  if (input.wants_to_speak !== undefined) {
+    patch.wants_to_speak = input.wants_to_speak;
+  }
+  if (input.excitement !== undefined) {
+    patch.excitement = input.excitement;
+  }
+  return patch;
+}
+
 export async function updateRsvpByPhone(
   phone: string,
   input: TokenUpdateInput
 ): Promise<Rsvp | null> {
   const timestamp = nowIso();
+  const patch = buildRsvpUpdate(input, timestamp);
 
   if (hasSupabaseConfig()) {
     const { data, error } = await getSupabaseAdmin()
       .from("rsvps")
-      .update({
-        guest_count: input.guest_count,
-        status: input.status,
-        notes: input.notes ?? null,
-        final_confirmed_at: timestamp,
-      })
+      .update(patch)
       .eq("phone", phone)
       .select("*")
       .maybeSingle();
@@ -189,12 +207,9 @@ export async function updateRsvpByPhone(
   if (idx < 0) return null;
   rows[idx] = {
     ...rows[idx],
-    guest_count: input.guest_count,
-    status: input.status,
-    notes: input.notes ?? rows[idx].notes,
-    final_confirmed_at: timestamp,
+    ...patch,
     updated_at: timestamp,
-  };
+  } as Rsvp;
   await writeLocal(rows);
   return rows[idx];
 }
@@ -227,6 +242,7 @@ export async function updateRsvpByToken(
 ): Promise<PublicInviteView | null> {
   if (!token || token.length < 16) return null;
   const timestamp = nowIso();
+  const patch = buildRsvpUpdate(input, timestamp);
 
   if (hasSupabaseConfig()) {
     const existing = await getSupabaseAdmin()
@@ -239,12 +255,7 @@ export async function updateRsvpByToken(
 
     const { data, error } = await getSupabaseAdmin()
       .from("rsvps")
-      .update({
-        guest_count: input.guest_count,
-        status: input.status,
-        notes: input.notes ?? null,
-        final_confirmed_at: timestamp,
-      })
+      .update(patch)
       .eq("invite_token", token)
       .select("*")
       .single();
@@ -258,12 +269,9 @@ export async function updateRsvpByToken(
 
   rows[idx] = {
     ...rows[idx],
-    guest_count: input.guest_count,
-    status: input.status,
-    notes: input.notes ?? rows[idx].notes,
-    final_confirmed_at: timestamp,
+    ...patch,
     updated_at: timestamp,
-  };
+  } as Rsvp;
   await writeLocal(rows);
   return toPublicView(rows[idx]);
 }

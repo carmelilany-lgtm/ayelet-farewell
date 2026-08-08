@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CONFIRM_PROMPT } from "@/lib/copy";
 import type { PublicInviteView, RsvpStatus } from "@/lib/types";
 
 type Status = Exclude<RsvpStatus, "imported">;
@@ -19,6 +20,11 @@ export function RsvpForm({ token, invite }: Props) {
   );
   const [status, setStatus] = useState<Status>(initialStatus);
   const [notes, setNotes] = useState(invite.notes || "");
+  const [video, setVideo] = useState(invite.wants_video_blessing || "");
+  const [speak, setSpeak] = useState(invite.wants_to_speak || "");
+  const [excitement, setExcitement] = useState(
+    invite.excitement ? String(invite.excitement) : ""
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -37,6 +43,9 @@ export function RsvpForm({ token, invite }: Props) {
           guest_count: guestCount,
           status,
           notes: notes.trim() || null,
+          wants_video_blessing: video.trim() || null,
+          wants_to_speak: speak.trim() || null,
+          excitement: excitement ? Number(excitement) : null,
         }),
       });
       const data = await res.json();
@@ -74,6 +83,7 @@ export function RsvpForm({ token, invite }: Props) {
       <p className="invitee-name">
         שלום <strong>{invite.full_name}</strong>
       </p>
+      <p className="confirm-prompt">{CONFIRM_PROMPT}</p>
       {invite.already_final && (
         <p className="rsvp-lead">
           כבר שלחתם אישור — אפשר לעדכן שוב אם משהו השתנה.
@@ -125,7 +135,49 @@ export function RsvpForm({ token, invite }: Props) {
       )}
 
       <div className="field">
-        <label htmlFor="notes">הערות (אופציונלי)</label>
+        <label htmlFor="video">הקלטה מצולמת לברכה?</label>
+        <select
+          id="video"
+          value={video}
+          onChange={(e) => setVideo(e.target.value)}
+        >
+          <option value="">לא צוין</option>
+          <option value="כן, אשמח">כן, אשמח</option>
+          <option value="לא, תודה">לא, תודה</option>
+        </select>
+      </div>
+
+      <div className="field">
+        <label htmlFor="speak">לברך / לשאת דברים באירוע?</label>
+        <select
+          id="speak"
+          value={speak}
+          onChange={(e) => setSpeak(e.target.value)}
+        >
+          <option value="">לא צוין</option>
+          <option value="כן">כן</option>
+          <option value="לא">לא</option>
+        </select>
+      </div>
+
+      <div className="field">
+        <label htmlFor="excitement">כמה את/ה נרגש/ת? (1–5)</label>
+        <select
+          id="excitement"
+          value={excitement}
+          onChange={(e) => setExcitement(e.target.value)}
+        >
+          <option value="">לא צוין</option>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="field">
+        <label htmlFor="notes">הערות / בקשות מיוחדות</label>
         <textarea
           id="notes"
           rows={3}

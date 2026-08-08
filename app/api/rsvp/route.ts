@@ -20,6 +20,9 @@ const bodySchema = z.object({
   guest_count: z.coerce.number().int().min(1).max(10),
   status: z.enum(["confirmed", "declined", "maybe"]),
   notes: z.string().trim().max(1000).optional().nullable(),
+  wants_video_blessing: z.string().trim().max(80).optional().nullable(),
+  wants_to_speak: z.string().trim().max(40).optional().nullable(),
+  excitement: z.coerce.number().int().min(1).max(5).optional().nullable(),
 });
 
 const rateMap = new Map<string, { count: number; resetAt: number }>();
@@ -112,6 +115,9 @@ export async function POST(request: Request) {
         guest_count: count,
         status: parsed.data.status,
         notes: parsed.data.notes ?? null,
+        wants_video_blessing: parsed.data.wants_video_blessing ?? null,
+        wants_to_speak: parsed.data.wants_to_speak ?? null,
+        excitement: parsed.data.excitement ?? null,
       });
       if (!invite) {
         return Response.json(
@@ -125,6 +131,9 @@ export async function POST(request: Request) {
         guest_count: count,
         status: parsed.data.status,
         notes: parsed.data.notes ?? null,
+        wants_video_blessing: parsed.data.wants_video_blessing ?? null,
+        wants_to_speak: parsed.data.wants_to_speak ?? null,
+        excitement: parsed.data.excitement ?? null,
       });
       if (!full) {
         return Response.json({ error: "לא נמצאה הרשמה" }, { status: 404 });

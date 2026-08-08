@@ -25,6 +25,9 @@ export type PublicInviteView = {
   guest_count: number;
   status: RsvpStatus;
   notes: string | null;
+  wants_video_blessing: string | null;
+  wants_to_speak: string | null;
+  excitement: number | null;
   already_final: boolean;
 };
 
@@ -32,6 +35,9 @@ export type TokenUpdateInput = {
   guest_count: number;
   status: Exclude<RsvpStatus, "imported">;
   notes?: string | null;
+  wants_video_blessing?: string | null;
+  wants_to_speak?: string | null;
+  excitement?: number | null;
 };
 
 export type RsvpImportRow = {

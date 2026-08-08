@@ -27,6 +27,9 @@ export async function GET(request: Request) {
         guest_count: guest.guest_count,
         status: guest.status,
         notes: guest.notes,
+        wants_video_blessing: guest.wants_video_blessing,
+        wants_to_speak: guest.wants_to_speak,
+        excitement: guest.excitement,
         already_final: Boolean(guest.final_confirmed_at),
       },
     });
