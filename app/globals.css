@@ -839,6 +839,83 @@ a {
   cursor: not-allowed;
 }
 
+.otp-step {
+  text-align: center;
+  gap: 1.35rem;
+}
+
+.otp-lead {
+  margin: 0;
+  color: var(--navy-soft);
+  line-height: 1.7;
+  font-size: 1rem;
+  display: grid;
+  gap: 0.35rem;
+  justify-items: center;
+}
+
+.otp-phone {
+  display: block;
+  color: var(--navy);
+  font-weight: 600;
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+  direction: ltr;
+}
+
+.field-otp {
+  justify-items: center;
+  gap: 0.55rem;
+}
+
+.field-otp label {
+  text-align: center;
+}
+
+.otp-input {
+  width: min(100%, 14rem) !important;
+  text-align: center !important;
+  font-size: 1.55rem !important;
+  font-weight: 500;
+  letter-spacing: 0.35em;
+  padding: 0.95rem 0.4rem !important;
+  border-bottom-width: 2px !important;
+}
+
+.otp-input::placeholder {
+  letter-spacing: 0.35em;
+  color: rgba(30, 58, 95, 0.28);
+}
+
+.otp-actions {
+  display: grid;
+  gap: 0.85rem;
+  justify-items: stretch;
+  margin-top: 0.35rem;
+}
+
+.otp-actions .submit-btn {
+  width: 100%;
+}
+
+.text-link-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--navy-soft);
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.35rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  transition: color 0.2s ease;
+}
+
+.text-link-btn:hover {
+  color: var(--navy);
+}
+
 .form-error {
   color: var(--danger);
   margin: 0;

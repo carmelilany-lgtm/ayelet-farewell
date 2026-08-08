@@ -767,6 +767,7 @@ export function AdminDashboard() {
                     label: "הודעה לפני הטופס",
                     multiline: true,
                     rows: 4,
+                    hint: "מופיעה רק אחרי התחברות / קישור אישי",
                   },
                   {
                     key: "rsvpLeadHome",

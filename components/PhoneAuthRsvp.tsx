@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CONFIRM_PROMPT } from "@/lib/copy";
-import { phoneValidationError } from "@/lib/phone";
+import { phoneValidationError, formatPhoneDisplay } from "@/lib/phone";
 import {
   resolveThankYouKind,
   thankYouMessage,
@@ -227,7 +227,6 @@ export function PhoneAuthRsvp({
     return (
       <form className="rsvp-form animate-fade-up" onSubmit={sendOtp}>
         {lead && <p className="rsvp-lead">{lead}</p>}
-        <p className="confirm-prompt">{confirmPrompt || CONFIRM_PROMPT}</p>
         <div className="field">
           <label htmlFor="phone">מספר טלפון נייד</label>
           <input
@@ -261,48 +260,53 @@ export function PhoneAuthRsvp({
 
   if (step === "code") {
     return (
-      <div className="rsvp-form animate-fade-up">
-        <form onSubmit={verifyOtp}>
-          <p className="rsvp-lead">
-            נשלח קוד אימות ל־WhatsApp במספר{" "}
-            <span dir="ltr">{phone}</span>
+      <form className="rsvp-form otp-step animate-fade-up" onSubmit={verifyOtp}>
+        <p className="otp-lead">
+          נשלח קוד אימות ל־WhatsApp
+          <span className="otp-phone" dir="ltr">
+            {formatPhoneDisplay(phone)}
+          </span>
+        </p>
+        <div className="field field-otp">
+          <label htmlFor="code">קוד אימות</label>
+          <input
+            id="code"
+            className="otp-input"
+            inputMode="numeric"
+            dir="ltr"
+            required
+            autoComplete="one-time-code"
+            autoFocus
+            maxLength={6}
+            placeholder="000000"
+            value={code}
+            onChange={(e) =>
+              setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+            }
+          />
+        </div>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
           </p>
-          <div className="field">
-            <label htmlFor="code">קוד אימות</label>
-            <input
-              id="code"
-              inputMode="numeric"
-              dir="ltr"
-              required
-              autoComplete="one-time-code"
-              placeholder="6 ספרות"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-          </div>
-          {error && (
-            <p className="form-error" role="alert">
-              {error}
-            </p>
-          )}
+        )}
+        <div className="otp-actions">
           <button type="submit" className="submit-btn" disabled={busy}>
             {busy ? "מאמת…" : "אימות והמשך"}
           </button>
-        </form>
-        <button
-          type="button"
-          className="link-btn ghost"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setStep("phone");
-            setCode("");
-            setError(null);
-          }}
-        >
-          שינוי מספר
-        </button>
-      </div>
+          <button
+            type="button"
+            className="text-link-btn"
+            onClick={() => {
+              setStep("phone");
+              setCode("");
+              setError(null);
+            }}
+          >
+            שינוי מספר
+          </button>
+        </div>
+      </form>
     );
   }
 
