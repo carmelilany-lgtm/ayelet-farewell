@@ -328,8 +328,13 @@ export function formatGuestFull(
     lines.push("נוסף ידנית (ממתין): כן");
   }
 
+  if (guest.final_confirmed_at) {
+    lines.push(
+      `תאריך ושעת אישור הגעה: ${formatWhen(guest.final_confirmed_at)}`
+    );
+  }
+
   lines.push(
-    `אישור סופי: ${formatWhen(guest.final_confirmed_at)}`,
     `תזכורת: ${
       guest.reminder_sent_at
         ? `נשלחה (${formatWhen(guest.reminder_sent_at)})`
