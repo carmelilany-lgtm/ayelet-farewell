@@ -323,6 +323,7 @@ export async function updateRsvpById(
   input: {
     status: Rsvp["status"];
     guest_count: number;
+    full_name?: string;
   }
 ): Promise<Rsvp | null> {
   const timestamp = nowIso();
@@ -338,6 +339,11 @@ export async function updateRsvpById(
         ? timestamp
         : null,
   };
+  if (input.full_name !== undefined) {
+    const name = input.full_name.trim();
+    if (!name || name.length < 2) throw new Error("INVALID_NAME");
+    patch.full_name = name;
+  }
 
   if (hasSupabaseConfig()) {
     const { data, error } = await getSupabaseAdmin()
@@ -551,27 +557,47 @@ async function updateGuestName(
   phone: string,
   fullName: string
 ): Promise<Rsvp | null> {
+  const existing = await getRsvpByPhone(phone);
+  if (!existing) return null;
+  return updateGuestNameById(existing.id, fullName);
+}
+
+export async function updateGuestNameById(
+  id: string,
+  fullName: string
+): Promise<Rsvp | null> {
+  const name = fullName.trim();
+  if (!name || name.length < 2) throw new Error("INVALID_NAME");
+
   const timestamp = nowIso();
   if (hasSupabaseConfig()) {
     const { data, error } = await getSupabaseAdmin()
       .from("rsvps")
-      .update({ full_name: fullName, updated_at: timestamp })
-      .eq("phone", phone)
+      .update({ full_name: name, updated_at: timestamp })
+      .eq("id", id)
       .select("*")
       .maybeSingle();
     if (error) throw error;
     return data ? normalizeRow(data as Rsvp) : null;
   }
   const rows = await readLocal();
-  const idx = rows.findIndex((r) => r.phone === phone);
+  const idx = rows.findIndex((r) => r.id === id);
   if (idx < 0) return null;
   rows[idx] = {
     ...rows[idx],
-    full_name: fullName,
+    full_name: name,
     updated_at: timestamp,
   };
   await writeLocal(rows);
   return rows[idx];
+}
+
+/** Rename guest by phone (WhatsApp organizer confirm flow). */
+export async function renameGuestByPhone(
+  phone: string,
+  fullName: string
+): Promise<Rsvp | null> {
+  return updateGuestName(phone, fullName);
 }
 
 export async function getRsvpByToken(token: string): Promise<Rsvp | null> {

@@ -1786,6 +1786,28 @@ a {
   cursor: pointer;
 }
 
+.admin-inline-input {
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--navy);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.15rem;
+  width: 100%;
+  min-width: 8rem;
+  max-width: 14rem;
+}
+
+.admin-inline-input:focus {
+  outline: none;
+  border-bottom-color: var(--gold);
+}
+
+.admin-inline-input:disabled {
+  opacity: 0.6;
+}
+
 .admin-inline-select:focus {
   outline: none;
   border-bottom-color: var(--gold);

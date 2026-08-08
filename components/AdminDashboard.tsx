@@ -236,7 +236,10 @@ export function AdminDashboard() {
   const [dirty, setDirty] = useState(false);
   const [guestSearch, setGuestSearch] = useState("");
   const [drafts, setDrafts] = useState<
-    Record<string, { status: Rsvp["status"]; guest_count: number }>
+    Record<
+      string,
+      { status: Rsvp["status"]; guest_count: number; full_name: string }
+    >
   >({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -381,6 +384,7 @@ export function AdminDashboard() {
       drafts[r.id] ?? {
         status: r.status,
         guest_count: Math.max(r.guest_count || 0, r.status === "declined" ? 0 : 1),
+        full_name: r.full_name,
       }
     );
   }
@@ -389,18 +393,27 @@ export function AdminDashboard() {
     const d = draftFor(r);
     const currentCount =
       r.status === "declined" ? 0 : Math.max(r.guest_count || 1, 1);
-    return d.status !== r.status || d.guest_count !== currentCount;
+    return (
+      d.status !== r.status ||
+      d.guest_count !== currentCount ||
+      d.full_name.trim() !== r.full_name.trim()
+    );
   }
 
   function setDraft(
     id: string,
-    patch: Partial<{ status: Rsvp["status"]; guest_count: number }>
+    patch: Partial<{
+      status: Rsvp["status"];
+      guest_count: number;
+      full_name: string;
+    }>
   ) {
     setDrafts((prev) => {
       const current = rsvps.find((r) => r.id === id);
       const base = prev[id] ?? {
         status: current?.status ?? "imported",
         guest_count: Math.max(current?.guest_count || 1, 1),
+        full_name: current?.full_name ?? "",
       };
       const next = { ...base, ...patch };
       if (next.status === "declined") next.guest_count = 0;
@@ -418,6 +431,7 @@ export function AdminDashboard() {
           r.guest_count || 0,
           r.status === "declined" ? 0 : 1
         ),
+        full_name: r.full_name,
       },
     }));
     setEditingId(r.id);
@@ -434,6 +448,10 @@ export function AdminDashboard() {
 
   async function saveGuestDraft(r: Rsvp) {
     const draft = draftFor(r);
+    if (!draft.full_name.trim() || draft.full_name.trim().length < 2) {
+      setError("נא להזין שם תקין");
+      return;
+    }
     if (!isDraftDirty(r)) {
       cancelEditGuest(r.id);
       return;
@@ -449,6 +467,7 @@ export function AdminDashboard() {
           id: r.id,
           status: draft.status,
           guest_count: draft.guest_count,
+          full_name: draft.full_name.trim(),
         }),
       });
       const data = await res.json();
@@ -807,7 +826,22 @@ export function AdminDashboard() {
                     key={r.id}
                     className={editing ? "admin-row-editing" : undefined}
                   >
-                    <td data-label="שם">{r.full_name}</td>
+                    <td data-label="שם">
+                      {editing ? (
+                        <input
+                          className="admin-inline-input"
+                          type="text"
+                          value={draft.full_name}
+                          disabled={savingId === r.id}
+                          onChange={(e) =>
+                            setDraft(r.id, { full_name: e.target.value })
+                          }
+                          aria-label={`שם של ${r.full_name}`}
+                        />
+                      ) : (
+                        r.full_name
+                      )}
+                    </td>
                     <td data-label="טלפון" dir="ltr">
                       {formatPhoneDisplay(r.phone)}
                     </td>
@@ -1094,13 +1128,12 @@ export function AdminDashboard() {
             >
               <p className="admin-guest-accordion-lead">
                 הוספה דרך וואטסאפ (מארגן בלבד): שלחו למספר של המערכת (Green API)
-                הודעה לפי התבנית — אדם אחד בכל פעם. תקבלו אישור קצר שהאורח נוסף
-                לרשימה הידנית; האורח לא מקבל הודעה.
+                שם בשורה הראשונה ומספר בשנייה — אדם אחד בכל פעם. תקבלו אישור קצר
+                שהאורח נוסף לרשימה הידנית; האורח לא מקבל הודעה.
               </p>
               <pre className="admin-wa-template" dir="rtl">
-                {`אורח חדש
-שם: ישראל ישראלי
-טלפון: 054-1234567`}
+                {`כרמל אילני
+0500000000`}
               </pre>
               <p className="admin-guest-accordion-lead">
                 אפשר גם כאן בטופס — שם ומספר בלבד, למי שטרם נרשם. לא ניתן להוסיף

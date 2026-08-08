@@ -203,6 +203,7 @@ const patchSchema = z.object({
   id: z.string().min(8),
   status: z.enum(["imported", "confirmed", "declined", "maybe"]),
   guest_count: z.coerce.number().int().min(0).max(10),
+  full_name: z.string().trim().min(2).max(120).optional(),
 });
 
 export async function PATCH(request: Request) {
@@ -224,6 +225,7 @@ export async function PATCH(request: Request) {
     const updated = await updateRsvpById(parsed.data.id, {
       status: parsed.data.status,
       guest_count: parsed.data.guest_count,
+      full_name: parsed.data.full_name,
     });
     if (!updated) {
       return Response.json({ error: "אורח לא נמצא" }, { status: 404 });
@@ -231,6 +233,10 @@ export async function PATCH(request: Request) {
     const summary = await getSummary();
     return Response.json({ ok: true, rsvp: updated, summary });
   } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (message === "INVALID_NAME") {
+      return Response.json({ error: "שם לא תקין" }, { status: 400 });
+    }
     console.error("Admin RSVP update failed", err);
     return Response.json({ error: "שגיאה בעדכון" }, { status: 500 });
   }

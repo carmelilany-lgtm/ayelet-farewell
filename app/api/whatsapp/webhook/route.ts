@@ -6,17 +6,30 @@ import {
 import {
   buildOrganizerAddGuestFailure,
   buildOrganizerAddGuestSuccess,
+  buildOrganizerGuestExistsAskRename,
+  buildOrganizerGuestExistsSameName,
+  buildOrganizerRenameCancelled,
+  buildOrganizerRenameSuccess,
 } from "@/lib/reminder-message";
 import {
   createImportedGuest,
   findGuestAddConflict,
-  type GuestAddConflict,
+  renameGuestByPhone,
 } from "@/lib/store";
+import { normalizeGuestName } from "@/lib/types";
 import {
   isOrganizerSender,
+  looksLikeAddGuestTemplate,
   parseAddGuestMessage,
   phoneFromWhatsAppId,
 } from "@/lib/whatsapp-add-guest";
+import {
+  clearPendingRename,
+  getPendingRename,
+  isRenameConfirm,
+  isRenameDecline,
+  setPendingRename,
+} from "@/lib/wa-pending-rename";
 
 export const runtime = "nodejs";
 
@@ -44,21 +57,6 @@ function extractText(body: GreenWebhookBody): string | null {
     return data.extendedTextMessageData?.text?.trim() || null;
   }
   return null;
-}
-
-function phoneConflictMessage(conflict: GuestAddConflict): string {
-  const who = conflict.existing.full_name;
-  const phone = formatPhoneDisplay(conflict.existing.phone);
-  switch (conflict.code) {
-    case "ALREADY_CONFIRMED":
-      return `המספר ${phone} כבר קיים במערכת אצל ${who} (אישר/ה הגעה). לא נוסף שוב.`;
-    case "ALREADY_DECLINED":
-      return `המספר ${phone} כבר קיים במערכת אצל ${who} (לא מגיע/ה). לא נוסף שוב.`;
-    case "PHONE_EXISTS":
-      return `המספר ${phone} כבר קיים במערכת אצל ${who}. לא נוסף שוב.`;
-    default:
-      return `המספר ${phone} כבר קיים במערכת. לא נוסף שוב.`;
-  }
 }
 
 function conflictMessage(code: string): string {
@@ -89,7 +87,7 @@ function webhookAuthorized(request: Request): boolean {
 
 /**
  * Green API incoming webhook.
- * Organizers send a fixed template to the instance WhatsApp number to add one guest.
+ * Organizers send name + phone (two lines) to add one guest.
  */
 export async function POST(request: Request) {
   if (!webhookAuthorized(request)) {
@@ -119,42 +117,108 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, ignored: "not_organizer" });
   }
 
-  const parsed = parseAddGuestMessage(text);
   const replyTo =
     phoneFromWhatsAppId(senderChatId) ||
     organizers[0] ||
     "";
 
+  // Handle yes/no for a pending name update.
+  if (replyTo && (isRenameConfirm(text) || isRenameDecline(text))) {
+    const pending = await getPendingRename(replyTo);
+    if (!pending) {
+      return Response.json({ ok: true, ignored: "no_pending_rename" });
+    }
+
+    if (isRenameDecline(text)) {
+      await clearPendingRename(replyTo);
+      await sendWhatsAppText(replyTo, buildOrganizerRenameCancelled());
+      return Response.json({ ok: true, renamed: false, cancelled: true });
+    }
+
+    const updated = await renameGuestByPhone(pending.guestPhone, pending.newName);
+    await clearPendingRename(replyTo);
+    if (!updated) {
+      await sendWhatsAppText(
+        replyTo,
+        buildOrganizerAddGuestFailure("לא מצאתי את האורח לעדכון.")
+      );
+      return Response.json({ ok: true, renamed: false, error: "NOT_FOUND" });
+    }
+
+    await sendWhatsAppText(
+      replyTo,
+      buildOrganizerRenameSuccess({
+        phone: formatPhoneDisplay(updated.phone),
+        oldName: pending.currentName,
+        newName: updated.full_name,
+      })
+    );
+    return Response.json({
+      ok: true,
+      renamed: true,
+      guest: { id: updated.id, full_name: updated.full_name, phone: updated.phone },
+    });
+  }
+
+  const parsed = parseAddGuestMessage(text);
+
   if (!parsed) {
-    // Only reply when it looks like an add attempt (has the header).
-    if (/^אורח\s*חדש(?:\s|$)/im.test(text) && replyTo) {
+    if (looksLikeAddGuestTemplate(text) && replyTo) {
       await sendWhatsAppText(
         replyTo,
         buildOrganizerAddGuestFailure(
-          "התבנית לא מלאה. צריך שורה עם שם: ושורה עם טלפון:."
+          "התבנית לא תקינה. שלחו שם בשורה הראשונה ומספר נייד בשורה השנייה."
         )
       );
     }
     return Response.json({ ok: true, ignored: "not_add_template" });
   }
 
-  // Block duplicates by phone before creating.
   const conflict = await findGuestAddConflict({
     full_name: parsed.fullName,
     phone: parsed.phone,
     phoneOnly: true,
   });
+
   if (conflict) {
+    const phoneLabel = formatPhoneDisplay(conflict.existing.phone);
+    const sameName =
+      normalizeGuestName(conflict.existing.full_name) ===
+      normalizeGuestName(parsed.fullName);
+
     if (replyTo) {
-      await sendWhatsAppText(
-        replyTo,
-        buildOrganizerAddGuestFailure(phoneConflictMessage(conflict))
-      );
+      if (sameName) {
+        await clearPendingRename(replyTo);
+        await sendWhatsAppText(
+          replyTo,
+          buildOrganizerGuestExistsSameName({
+            fullName: conflict.existing.full_name,
+            phone: phoneLabel,
+          })
+        );
+      } else {
+        await setPendingRename({
+          organizerPhone: replyTo,
+          guestPhone: conflict.existing.phone,
+          currentName: conflict.existing.full_name,
+          newName: parsed.fullName,
+        });
+        await sendWhatsAppText(
+          replyTo,
+          buildOrganizerGuestExistsAskRename({
+            currentName: conflict.existing.full_name,
+            newName: parsed.fullName,
+            phone: phoneLabel,
+          })
+        );
+      }
     }
+
     return Response.json({
       ok: true,
       added: false,
       error: conflict.code,
+      askRename: !sameName,
       existing: {
         id: conflict.existing.id,
         full_name: conflict.existing.full_name,
@@ -172,6 +236,7 @@ export async function POST(request: Request) {
     });
 
     if (replyTo) {
+      await clearPendingRename(replyTo);
       await sendWhatsAppText(
         replyTo,
         buildOrganizerAddGuestSuccess(guest.full_name)
@@ -201,6 +266,6 @@ export async function GET() {
   return Response.json({
     ok: true,
     service: "ayelet-farewell-whatsapp-webhook",
-    template: "אורח חדש / שם: / טלפון:",
+    template: "שם\\nטלפון",
   });
 }

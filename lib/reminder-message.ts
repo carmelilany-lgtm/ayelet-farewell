@@ -60,15 +60,47 @@ export function buildOrganizerAddGuestSuccess(fullName: string): string {
   return `${fullName} נוסף/ה לרשימה הידנית ✅`;
 }
 
+export function buildOrganizerGuestExistsSameName(opts: {
+  fullName: string;
+  phone: string;
+}): string {
+  return `המספר ${opts.phone} כבר מופיע במערכת בשם ${opts.fullName}. לא נוסף שוב.`;
+}
+
+export function buildOrganizerGuestExistsAskRename(opts: {
+  currentName: string;
+  newName: string;
+  phone: string;
+}): string {
+  return `המספר ${opts.phone} כבר מופיע במערכת בשם ${opts.currentName}.
+
+לעדכן את השם ל-${opts.newName}?
+השיבו: כן
+או: לא`;
+}
+
+export function buildOrganizerRenameSuccess(opts: {
+  phone: string;
+  oldName: string;
+  newName: string;
+}): string {
+  return `עודכן ✅
+${opts.oldName} → ${opts.newName}
+(${opts.phone})`;
+}
+
+export function buildOrganizerRenameCancelled(): string {
+  return `לא עודכן. השם נשאר כמו שהוא.`;
+}
+
 export function buildOrganizerAddGuestFailure(reason: string): string {
   return `לא הצלחתי להוסיף אורח ❌
 
 ${reason}
 
 שלחו שוב לפי התבנית:
-אורח חדש
-שם: ישראל ישראלי
-טלפון: 054-1234567`;
+כרמל אילני
+0500000000`;
 }
 
 export async function buildGuestThankYouWhatsApp(opts: {
