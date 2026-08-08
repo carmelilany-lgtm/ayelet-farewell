@@ -254,42 +254,65 @@ export function PhoneAuthRsvp({ content }: Props) {
   if (step === "code") {
     return (
       <form className="rsvp-form otp-step animate-fade-up" onSubmit={verifyOtp}>
-        <p className="otp-lead">
-          {content.otpSentLead}
-          <span className="otp-phone" dir="ltr">
-            {formatPhoneDisplay(phone)}
-          </span>
+        <div className="otp-ornament" aria-hidden="true" />
+        <p className="otp-kicker">{content.codeLabel}</p>
+        <p className="otp-lead">{content.otpSentLead}</p>
+        <p className="otp-phone" dir="ltr">
+          {formatPhoneDisplay(phone)}
         </p>
-        <div className="field field-otp">
-          <label htmlFor="code">{content.codeLabel}</label>
+
+        <div className="otp-code-field">
+          <label htmlFor="code" className="sr-only">
+            {content.codeLabel}
+          </label>
+          <div className="otp-slots" aria-hidden="true">
+            {Array.from({ length: 6 }, (_, i) => {
+              const digit = code[i] ?? "";
+              const active = code.length === i;
+              return (
+                <span
+                  key={i}
+                  className={`otp-slot${digit ? " filled" : ""}${active ? " active" : ""}`}
+                >
+                  {digit}
+                </span>
+              );
+            })}
+          </div>
           <input
             id="code"
-            className="otp-input"
+            className="otp-input-overlay"
             inputMode="numeric"
             dir="ltr"
             required
             autoComplete="one-time-code"
             autoFocus
             maxLength={6}
-            placeholder="000000"
             value={code}
+            aria-label={content.codeLabel}
             onChange={(e) =>
               setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
             }
           />
         </div>
+
         {error && (
-          <p className="form-error" role="alert">
+          <p className="form-error otp-error" role="alert">
             {error}
           </p>
         )}
+
         <div className="otp-actions">
-          <button type="submit" className="submit-btn" disabled={busy}>
+          <button
+            type="submit"
+            className="submit-btn"
+            disabled={busy || code.length < 6}
+          >
             {busy ? "…" : content.verifyOtpLabel}
           </button>
           <button
             type="button"
-            className="text-link-btn"
+            className="text-link-btn otp-change-phone"
             onClick={() => {
               setStep("phone");
               setCode("");
