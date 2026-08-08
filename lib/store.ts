@@ -403,11 +403,9 @@ export async function updateRsvpById(
   };
 
   if (status === "imported") {
+    // Revoke final RSVP. Do not invent imported_at — manual guests
+    // (imported_at null) must stay in «נוספו ידנית» after a reset.
     patch.final_confirmed_at = null;
-    // Keep them in the main pending list (not "הוספה ידנית") after a revoke.
-    if (!existing.imported_at) {
-      patch.imported_at = existing.created_at || timestamp;
-    }
   } else {
     patch.final_confirmed_at = timestamp;
   }
