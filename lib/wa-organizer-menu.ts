@@ -81,15 +81,15 @@ function navButtons(opts?: {
   const hasPrev = Boolean(opts?.hasPrev);
   const hasNext = Boolean(opts?.hasNext);
   if (hasPrev && hasNext) {
-    return [btn("prev", "הקודם"), btn("next", "הבא"), btn("home", "תפריט")];
+    return [btn("prev", "הקודם"), btn("next", "הבא"), btn("home", "לתפריט הראשי")];
   }
   if (hasNext) {
-    return [btn("back", "אחורה"), btn("next", "הבא"), btn("home", "תפריט")];
+    return [btn("back", "אחורה"), btn("next", "הבא"), btn("home", "לתפריט הראשי")];
   }
   if (hasPrev) {
-    return [btn("back", "אחורה"), btn("prev", "הקודם"), btn("home", "תפריט")];
+    return [btn("back", "אחורה"), btn("prev", "הקודם"), btn("home", "לתפריט הראשי")];
   }
-  return [btn("back", "אחורה"), btn("home", "תפריט")];
+  return [btn("back", "אחורה"), btn("home", "לתפריט הראשי")];
 }
 
 function shortName(name: string): string {
@@ -339,7 +339,7 @@ async function renderScreen(
         ];
         // If only one guest, add home as third button.
         if (slice.length === 1) {
-          buttons.push(btn("home", "תפריט"));
+          buttons.push(btn("home", "לתפריט הראשי"));
         }
       } else {
         buttons = navButtons({ hasPrev, hasNext: hasMore });
@@ -470,6 +470,8 @@ function resolveAction(text: string, buttonId?: string | null): string {
     חזרה: "back",
     תפריט: "home",
     "תפריט ראשי": "home",
+    "לתפריט הראשי": "home",
+    "חזרה לתפריט הראשי": "home",
     הקודם: "prev",
     הבא: "next",
   };
@@ -714,7 +716,7 @@ export async function handleOrganizerMenu(opts: {
     const rendered = await renderScreen(screen, await listRsvps());
     return {
       handled: true,
-      message: `בחרו אחורה או תפריט.\n\n${rendered.message}`,
+      message: `בחרו אחורה או לתפריט הראשי.\n\n${rendered.message}`,
       textFallback: rendered.textFallback,
       buttons: rendered.buttons,
       footer: rendered.footer,
@@ -765,7 +767,7 @@ export async function handleOrganizerMenu(opts: {
     const rendered = await renderScreen(screen, await listRsvps());
     return {
       handled: true,
-      message: `בחרו אחורה או תפריט.\n\n${rendered.message}`,
+      message: `בחרו אחורה או לתפריט הראשי.\n\n${rendered.message}`,
       textFallback: rendered.textFallback,
       buttons: rendered.buttons,
       footer: rendered.footer,
