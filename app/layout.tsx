@@ -22,12 +22,16 @@ export const metadata: Metadata = {
   title: "מסיבת פרידה - איילת | אישור הגעה",
   description:
     "תזכורת ואישור הגעה למסיבת הפרידה של איילת · 7 בספטמבר 2026 · תחנת רוח, טבעון",
+  // No Open Graph / social preview — WhatsApp should show plain links only.
   openGraph: {
     title: "מסיבת פרידה - איילת",
-    description: "7 בספטמבר 2026 | 18:00-21:00 · תחנת רוח, טבעון",
-    images: ["/invite.jpg"],
-    locale: "he_IL",
+    description: " ",
+    images: [],
     type: "website",
+  },
+  twitter: {
+    card: "summary",
+    images: [],
   },
 };
 

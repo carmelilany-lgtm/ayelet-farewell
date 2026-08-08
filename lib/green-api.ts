@@ -113,7 +113,7 @@ export async function sendWhatsAppText(
     const res = await fetch(apiUrl("sendMessage"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatId, message }),
+      body: JSON.stringify({ chatId, message, linkPreview: false }),
       signal: AbortSignal.timeout(25000),
     });
 
@@ -339,7 +339,10 @@ export async function sendWhatsAppReplyButtons(
   }
 }
 
-/** Reply buttons with plain-text fallback. Tries @lid then @c.us. */
+/** Reply buttons with plain-text fallback. Tries @lid then @c.us.
+ * Messages that contain a URL are sent as plain text with linkPreview:false,
+ * then nav buttons in a second message — so WhatsApp does not show a card preview.
+ */
 export async function sendWhatsAppReplyButtonsWithFallback(
   phone: string,
   body: string,
@@ -347,6 +350,28 @@ export async function sendWhatsAppReplyButtonsWithFallback(
   footer?: string,
   textFallback?: string
 ): Promise<GreenSendResult> {
+  const hasLink = /https?:\/\//i.test(body) || /https?:\/\//i.test(textFallback || "");
+
+  if (hasLink) {
+    const textSent = await sendWhatsAppTextWithRetry(
+      phone,
+      textFallback || body,
+      2
+    );
+    if (textSent.ok && buttons && buttons.length > 0) {
+      await sleep(400);
+      const resolved = await ensureWhatsAppChat(phone);
+      await sendWhatsAppReplyButtons(
+        phone,
+        "ניווט:",
+        buttons,
+        footer,
+        resolved
+      );
+    }
+    return textSent;
+  }
+
   if (buttons && buttons.length > 0) {
     const resolved = await ensureWhatsAppChat(phone);
     await sleep(250);
