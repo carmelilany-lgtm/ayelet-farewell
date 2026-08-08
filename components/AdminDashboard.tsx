@@ -1136,6 +1136,10 @@ export function AdminDashboard() {
 0500000000`}
               </pre>
               <p className="admin-guest-accordion-lead">
+                לתפריט מידע (סיכום / חיפוש / רשימות) שלחו למספר המערכת:{" "}
+                <strong>עזרה</strong> — ניווט במספרים, בלי שליחת הודעות לאורחים.
+              </p>
+              <p className="admin-guest-accordion-lead">
                 אפשר גם כאן בטופס — שם ומספר בלבד, למי שטרם נרשם. לא ניתן להוסיף
                 מי שכבר אישר/ה הגעה.
               </p>

@@ -17,6 +17,7 @@ import {
   renameGuestByPhone,
 } from "@/lib/store";
 import { normalizeGuestName } from "@/lib/types";
+import { handleOrganizerMenu } from "@/lib/wa-organizer-menu";
 import {
   isOrganizerSender,
   looksLikeAddGuestTemplate,
@@ -78,7 +79,7 @@ function conflictMessage(code: string): string {
 
 function webhookAuthorized(request: Request): boolean {
   const expected = process.env.GREEN_API_WEBHOOK_TOKEN?.trim();
-  if (!expected) return true; // allow if not configured (dev); set token in prod
+  if (!expected) return true;
   const url = new URL(request.url);
   const fromQuery = url.searchParams.get("token")?.trim();
   const fromHeader = request.headers.get("x-webhook-token")?.trim();
@@ -86,8 +87,9 @@ function webhookAuthorized(request: Request): boolean {
 }
 
 /**
- * Green API incoming webhook.
- * Organizers send name + phone (two lines) to add one guest.
+ * Green API incoming webhook for organizers:
+ * - name + phone (2 lines) → add guest (unchanged)
+ * - עזרה / תפריט → info menus (no messaging guests)
  */
 export async function POST(request: Request) {
   if (!webhookAuthorized(request)) {
@@ -101,7 +103,6 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, ignored: "invalid_json" });
   }
 
-  // Always 200 quickly for unrelated webhook types so Green API doesn't retry forever.
   if (body.typeWebhook !== "incomingMessageReceived") {
     return Response.json({ ok: true, ignored: body.typeWebhook || "unknown" });
   }
@@ -122,71 +123,69 @@ export async function POST(request: Request) {
     organizers[0] ||
     "";
 
-  // Handle yes/no for a pending name update.
-  if (replyTo && (isRenameConfirm(text) || isRenameDecline(text))) {
+  if (!replyTo) {
+    return Response.json({ ok: true, ignored: "no_reply_to" });
+  }
+
+  // 1) Pending rename yes/no (only when there is a pending ask).
+  if (isRenameConfirm(text) || isRenameDecline(text)) {
     const pending = await getPendingRename(replyTo);
-    if (!pending) {
-      return Response.json({ ok: true, ignored: "no_pending_rename" });
-    }
+    if (pending) {
+      if (isRenameDecline(text)) {
+        await clearPendingRename(replyTo);
+        await sendWhatsAppText(replyTo, buildOrganizerRenameCancelled());
+        return Response.json({ ok: true, renamed: false, cancelled: true });
+      }
 
-    if (isRenameDecline(text)) {
+      const updated = await renameGuestByPhone(
+        pending.guestPhone,
+        pending.newName
+      );
       await clearPendingRename(replyTo);
-      await sendWhatsAppText(replyTo, buildOrganizerRenameCancelled());
-      return Response.json({ ok: true, renamed: false, cancelled: true });
-    }
+      if (!updated) {
+        await sendWhatsAppText(
+          replyTo,
+          buildOrganizerAddGuestFailure("לא מצאתי את האורח לעדכון.")
+        );
+        return Response.json({ ok: true, renamed: false, error: "NOT_FOUND" });
+      }
 
-    const updated = await renameGuestByPhone(pending.guestPhone, pending.newName);
-    await clearPendingRename(replyTo);
-    if (!updated) {
       await sendWhatsAppText(
         replyTo,
-        buildOrganizerAddGuestFailure("לא מצאתי את האורח לעדכון.")
+        buildOrganizerRenameSuccess({
+          phone: formatPhoneDisplay(updated.phone),
+          oldName: pending.currentName,
+          newName: updated.full_name,
+        })
       );
-      return Response.json({ ok: true, renamed: false, error: "NOT_FOUND" });
+      return Response.json({
+        ok: true,
+        renamed: true,
+        guest: {
+          id: updated.id,
+          full_name: updated.full_name,
+          phone: updated.phone,
+        },
+      });
     }
-
-    await sendWhatsAppText(
-      replyTo,
-      buildOrganizerRenameSuccess({
-        phone: formatPhoneDisplay(updated.phone),
-        oldName: pending.currentName,
-        newName: updated.full_name,
-      })
-    );
-    return Response.json({
-      ok: true,
-      renamed: true,
-      guest: { id: updated.id, full_name: updated.full_name, phone: updated.phone },
-    });
+    // No pending rename — fall through (e.g. menu / help).
   }
 
+  // 2) Manual add template always wins (do not break existing flow).
   const parsed = parseAddGuestMessage(text);
+  if (parsed) {
+    const conflict = await findGuestAddConflict({
+      full_name: parsed.fullName,
+      phone: parsed.phone,
+      phoneOnly: true,
+    });
 
-  if (!parsed) {
-    if (looksLikeAddGuestTemplate(text) && replyTo) {
-      await sendWhatsAppText(
-        replyTo,
-        buildOrganizerAddGuestFailure(
-          "התבנית לא תקינה. שלחו שם בשורה הראשונה ומספר נייד בשורה השנייה."
-        )
-      );
-    }
-    return Response.json({ ok: true, ignored: "not_add_template" });
-  }
+    if (conflict) {
+      const phoneLabel = formatPhoneDisplay(conflict.existing.phone);
+      const sameName =
+        normalizeGuestName(conflict.existing.full_name) ===
+        normalizeGuestName(parsed.fullName);
 
-  const conflict = await findGuestAddConflict({
-    full_name: parsed.fullName,
-    phone: parsed.phone,
-    phoneOnly: true,
-  });
-
-  if (conflict) {
-    const phoneLabel = formatPhoneDisplay(conflict.existing.phone);
-    const sameName =
-      normalizeGuestName(conflict.existing.full_name) ===
-      normalizeGuestName(parsed.fullName);
-
-    if (replyTo) {
       if (sameName) {
         await clearPendingRename(replyTo);
         await sendWhatsAppText(
@@ -212,60 +211,87 @@ export async function POST(request: Request) {
           })
         );
       }
+
+      return Response.json({
+        ok: true,
+        added: false,
+        error: conflict.code,
+        askRename: !sameName,
+        existing: {
+          id: conflict.existing.id,
+          full_name: conflict.existing.full_name,
+          phone: conflict.existing.phone,
+          status: conflict.existing.status,
+        },
+      });
     }
 
-    return Response.json({
-      ok: true,
-      added: false,
-      error: conflict.code,
-      askRename: !sameName,
-      existing: {
-        id: conflict.existing.id,
-        full_name: conflict.existing.full_name,
-        phone: conflict.existing.phone,
-        status: conflict.existing.status,
-      },
-    });
-  }
+    try {
+      const guest = await createImportedGuest({
+        full_name: parsed.fullName,
+        phone: parsed.phone,
+        phoneOnly: true,
+      });
 
-  try {
-    const guest = await createImportedGuest({
-      full_name: parsed.fullName,
-      phone: parsed.phone,
-      phoneOnly: true,
-    });
-
-    if (replyTo) {
       await clearPendingRename(replyTo);
       await sendWhatsAppText(
         replyTo,
         buildOrganizerAddGuestSuccess(guest.full_name)
       );
-    }
 
-    return Response.json({
-      ok: true,
-      added: true,
-      guest: { id: guest.id, phone: guest.phone, full_name: guest.full_name },
-    });
-  } catch (err) {
-    const code = err instanceof Error ? err.message : "UNKNOWN";
-    if (replyTo) {
+      return Response.json({
+        ok: true,
+        added: true,
+        guest: {
+          id: guest.id,
+          phone: guest.phone,
+          full_name: guest.full_name,
+        },
+      });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "UNKNOWN";
       await sendWhatsAppText(
         replyTo,
         buildOrganizerAddGuestFailure(conflictMessage(code))
       );
+      console.error("WhatsApp add guest failed", err);
+      return Response.json({ ok: true, added: false, error: code });
     }
-    console.error("WhatsApp add guest failed", err);
-    return Response.json({ ok: true, added: false, error: code });
   }
+
+  // 3) Organizer info menu (עזרה / numbers / search).
+  const menu = await handleOrganizerMenu({
+    organizerPhone: replyTo,
+    text,
+  });
+  if (menu) {
+    await sendWhatsAppText(replyTo, menu.message);
+    return Response.json({
+      ok: true,
+      menu: true,
+      exited: Boolean(menu.exited),
+    });
+  }
+
+  // 4) Almost-add template with bad values.
+  if (looksLikeAddGuestTemplate(text)) {
+    await sendWhatsAppText(
+      replyTo,
+      buildOrganizerAddGuestFailure(
+        "התבנית לא תקינה. שלחו שם בשורה הראשונה ומספר נייד בשורה השנייה."
+      )
+    );
+    return Response.json({ ok: true, ignored: "not_add_template" });
+  }
+
+  return Response.json({ ok: true, ignored: "unhandled" });
 }
 
-/** Green API may probe with GET. */
 export async function GET() {
   return Response.json({
     ok: true,
     service: "ayelet-farewell-whatsapp-webhook",
     template: "שם\\nטלפון",
+    menu: "עזרה",
   });
 }
