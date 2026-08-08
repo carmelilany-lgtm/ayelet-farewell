@@ -34,6 +34,8 @@ const MAIN_PAGE_COUNT = 4;
 const GUEST_BUTTON_MAX = 2;
 
 const MENU_CLOSED_MESSAGE = "התפריט נסגר.\nלפתיחה מחדש שלחו עזרה";
+/** WhatsApp interactive footer (≤60 chars) — how to leave the menu. */
+const MENU_EXIT_FOOTER = "לסגירה שלחו: יציאה";
 
 const STATUS_LABEL: Record<RsvpStatus, string> = {
   imported: "ממתין לאישור",
@@ -407,6 +409,7 @@ async function renderScreen(
         message: renderMainMenu(page, true),
         textFallback: renderMainMenu(page, false),
         buttons: mainPageButtons(page),
+        footer: MENU_EXIT_FOOTER,
       };
     }
     case "summary": {
@@ -415,6 +418,7 @@ async function renderScreen(
         message: renderSummary(summary, true, backIsHome),
         textFallback: renderSummary(summary, false, backIsHome),
         buttons: navButtons(nav),
+        footer: MENU_EXIT_FOOTER,
       };
     }
     case "search_prompt":
@@ -422,12 +426,14 @@ async function renderScreen(
         message: renderSearchPrompt(true, backIsHome),
         textFallback: renderSearchPrompt(false, backIsHome),
         buttons: navButtons(nav),
+        footer: MENU_EXIT_FOOTER,
       };
     case "add_help":
       return {
         message: renderAddHelp(true, backIsHome),
         textFallback: renderAddHelp(false, backIsHome),
         buttons: navButtons(nav),
+        footer: MENU_EXIT_FOOTER,
       };
     case "list": {
       const { slice, hasMore, hasPrev } = pageSlice(screen.ids, screen.page);
@@ -463,6 +469,7 @@ async function renderScreen(
         message: renderList(screen, byId, true, backIsHome),
         textFallback: renderList(screen, byId, false, backIsHome),
         buttons,
+        footer: MENU_EXIT_FOOTER,
       };
     }
     case "guest": {
@@ -473,12 +480,14 @@ async function renderScreen(
           message: "אורח לא נמצא.",
           textFallback: `אורח לא נמצא.\n${navFooter(nav)}`,
           buttons: navButtons(nav),
+          footer: MENU_EXIT_FOOTER,
         };
       }
       return {
         message: formatGuestFull(guest, true, backIsHome),
         textFallback: formatGuestFull(guest, false, backIsHome),
         buttons: navButtons(nav),
+        footer: MENU_EXIT_FOOTER,
       };
     }
   }
