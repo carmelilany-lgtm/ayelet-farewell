@@ -402,39 +402,49 @@ async function renderScreen(
   const backIsHome = backLandsOnHome(stack);
   const nav = { backIsHome };
 
+  /** Footer only when there is no יציאה button already on screen. */
+  const exitFooter = (buttons: ReplyButton[]) =>
+    buttons.some((b) => b.buttonId === "exit") ? undefined : MENU_EXIT_FOOTER;
+
   switch (screen.id) {
     case "main": {
       const page = screen.page ?? 0;
+      const buttons = mainPageButtons(page);
       return {
         message: renderMainMenu(page, true),
         textFallback: renderMainMenu(page, false),
-        buttons: mainPageButtons(page),
-        footer: MENU_EXIT_FOOTER,
+        buttons,
+        footer: exitFooter(buttons),
       };
     }
     case "summary": {
       const summary = await getSummary();
+      const buttons = navButtons(nav);
       return {
         message: renderSummary(summary, true, backIsHome),
         textFallback: renderSummary(summary, false, backIsHome),
-        buttons: navButtons(nav),
-        footer: MENU_EXIT_FOOTER,
+        buttons,
+        footer: exitFooter(buttons),
       };
     }
-    case "search_prompt":
+    case "search_prompt": {
+      const buttons = navButtons(nav);
       return {
         message: renderSearchPrompt(true, backIsHome),
         textFallback: renderSearchPrompt(false, backIsHome),
-        buttons: navButtons(nav),
-        footer: MENU_EXIT_FOOTER,
+        buttons,
+        footer: exitFooter(buttons),
       };
-    case "add_help":
+    }
+    case "add_help": {
+      const buttons = navButtons(nav);
       return {
         message: renderAddHelp(true, backIsHome),
         textFallback: renderAddHelp(false, backIsHome),
-        buttons: navButtons(nav),
-        footer: MENU_EXIT_FOOTER,
+        buttons,
+        footer: exitFooter(buttons),
       };
+    }
     case "list": {
       const { slice, hasMore, hasPrev } = pageSlice(screen.ids, screen.page);
       const useGuestButtons = slice.length > 0 && slice.length <= GUEST_BUTTON_MAX;
@@ -469,25 +479,26 @@ async function renderScreen(
         message: renderList(screen, byId, true, backIsHome),
         textFallback: renderList(screen, byId, false, backIsHome),
         buttons,
-        footer: MENU_EXIT_FOOTER,
+        footer: exitFooter(buttons),
       };
     }
     case "guest": {
       const guest =
         byId.get(screen.guestId) || (await getRsvpById(screen.guestId));
+      const buttons = navButtons(nav);
       if (!guest) {
         return {
           message: "אורח לא נמצא.",
           textFallback: `אורח לא נמצא.\n${navFooter(nav)}`,
-          buttons: navButtons(nav),
-          footer: MENU_EXIT_FOOTER,
+          buttons,
+          footer: exitFooter(buttons),
         };
       }
       return {
         message: formatGuestFull(guest, true, backIsHome),
         textFallback: formatGuestFull(guest, false, backIsHome),
-        buttons: navButtons(nav),
-        footer: MENU_EXIT_FOOTER,
+        buttons,
+        footer: exitFooter(buttons),
       };
     }
   }
