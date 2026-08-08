@@ -2,7 +2,7 @@ import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
 import {
   organizerNotifyPhones,
   resolveWhatsAppChatId,
-  sendWhatsAppReplyButtonsWithFallback,
+  sendOrganizerMenuMessage,
   sendWhatsAppText,
 } from "@/lib/green-api";
 import {
@@ -59,6 +59,11 @@ type GreenWebhookBody = {
       selectedId?: string;
       selectedDisplayText?: string;
     };
+    listResponseMessage?: {
+      title?: string;
+      /** Green API documents this as a string row id. */
+      singleSelectReply?: string | { selectedRowId?: string };
+    };
   };
 };
 
@@ -97,6 +102,19 @@ function extractOrganizerInput(body: GreenWebhookBody): OrganizerInput | null {
       data.interactiveButtonsResponse || data.templateButtonReplyMessage;
     const id = payload?.selectedId?.trim() || null;
     const label = payload?.selectedDisplayText?.trim() || "";
+    if (!id && !label) return null;
+    return { text: label || id || "", buttonId: id };
+  }
+
+  if (data.typeMessage === "listResponseMessage") {
+    const payload = data.listResponseMessage;
+    const reply = payload?.singleSelectReply;
+    const id =
+      (typeof reply === "string"
+        ? reply
+        : reply?.selectedRowId
+      )?.trim() || null;
+    const label = payload?.title?.trim() || "";
     if (!id && !label) return null;
     return { text: label || id || "", buttonId: id };
   }
@@ -337,18 +355,19 @@ export async function POST(request: Request) {
     buttonId,
   });
   if (menu) {
-    await sendWhatsAppReplyButtonsWithFallback(
-      replyTo,
-      menu.message,
-      menu.buttons,
-      menu.footer,
-      menu.textFallback
-    );
+    await sendOrganizerMenuMessage(replyTo, {
+      body: menu.message,
+      textFallback: menu.textFallback,
+      buttons: menu.buttons,
+      footer: menu.footer,
+      list: menu.list,
+    });
     return Response.json({
       ok: true,
       menu: true,
       exited: Boolean(menu.exited),
       buttons: Boolean(menu.buttons?.length),
+      list: Boolean(menu.list),
     });
   }
 

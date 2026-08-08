@@ -376,6 +376,162 @@ export async function sendWhatsAppReplyButtonsWithFallback(
   return sendWhatsAppTextWithRetry(phone, textFallback || body, 2);
 }
 
+export type ListSection = {
+  title: string;
+  rows: Array<{ title: string; rowId: string; description?: string }>;
+};
+
+/** True once we learn Green API list messages are unavailable (currently 403). */
+let listMessageDisabled = false;
+
+/**
+ * WhatsApp list message (up to 10 rows). Meta recommends this for 3–10 choices.
+ * Green API may return 403 while the method is temporarily disabled.
+ */
+export async function sendWhatsAppListMessage(
+  phone: string,
+  opts: {
+    body: string;
+    buttonText: string;
+    sections: ListSection[];
+    title?: string;
+    footer?: string;
+  },
+  chatIdOverride?: string | null
+): Promise<GreenSendResult> {
+  if (listMessageDisabled) {
+    return { ok: false, error: "sendListMessage disabled" };
+  }
+  if (!hasGreenApiConfig()) {
+    return {
+      ok: false,
+      error:
+        "Green API לא מוגדר. הוסיפו GREEN_API_ID_INSTANCE ו־GREEN_API_TOKEN_INSTANCE",
+    };
+  }
+
+  const chatId = chatIdOverride || phoneToChatId(phone);
+  if (!chatId) {
+    return { ok: false, error: "מספר טלפון לא תקין לשליחה" };
+  }
+
+  const rowCount = opts.sections.reduce((n, s) => n + s.rows.length, 0);
+  if (rowCount < 3 || rowCount > 10) {
+    return { ok: false, error: "list requires 3–10 rows" };
+  }
+
+  try {
+    const res = await fetch(apiUrl("sendListMessage"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chatId,
+        message: opts.body,
+        buttonText: opts.buttonText.slice(0, 20),
+        sections: opts.sections.map((s) => ({
+          title: s.title.slice(0, 24),
+          rows: s.rows.map((r) => ({
+            title: r.title.slice(0, 24),
+            rowId: r.rowId,
+            ...(r.description
+              ? { description: r.description.slice(0, 72) }
+              : {}),
+          })),
+        })),
+        ...(opts.title ? { title: opts.title.slice(0, 60) } : {}),
+        ...(opts.footer ? { footer: opts.footer.slice(0, 60) } : {}),
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+
+    const data = (await res.json().catch(() => ({}))) as {
+      idMessage?: string;
+      message?: string;
+    };
+
+    if (res.status === 403) {
+      listMessageDisabled = true;
+      return { ok: false, error: data.message || "sendListMessage unavailable (403)" };
+    }
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data.message || `שגיאת Green API (${res.status})`,
+      };
+    }
+
+    if (!data.idMessage) {
+      return { ok: false, error: "תשובה לא צפויה מ־Green API" };
+    }
+
+    return { ok: true, idMessage: data.idMessage };
+  } catch (err) {
+    console.error("Green API list message send failed", err);
+    return { ok: false, error: "כשל ברשת מול Green API" };
+  }
+}
+
+/**
+ * Meta pattern: ≤3 reply buttons; 3–10 list message; else numbered text.
+ * On Green API, list may be unavailable → numbered text + nav buttons.
+ */
+export async function sendOrganizerMenuMessage(
+  phone: string,
+  opts: {
+    body: string;
+    textFallback?: string;
+    buttons?: ReplyButton[];
+    footer?: string;
+    /** When set (3–10 rows), try list message first for the choices. */
+    list?: {
+      /** Body without numbered choices (cleaner list UI). */
+      body?: string;
+      buttonText: string;
+      title?: string;
+      sections: ListSection[];
+      /** Nav buttons sent after a successful list (אחורה / הבא / …). */
+      navButtons?: ReplyButton[];
+    };
+  }
+): Promise<GreenSendResult> {
+  const resolved = await ensureWhatsAppChat(phone);
+  await sleep(200);
+
+  if (opts.list && opts.list.sections.some((s) => s.rows.length > 0)) {
+    const listSent = await sendWhatsAppListMessage(
+      phone,
+      {
+        body: opts.list.body || opts.body,
+        buttonText: opts.list.buttonText,
+        sections: opts.list.sections,
+        title: opts.list.title,
+        footer: opts.footer,
+      },
+      resolved
+    );
+    if (listSent.ok) {
+      if (opts.list.navButtons && opts.list.navButtons.length > 0) {
+        await sleep(400);
+        await sendWhatsAppReplyButtonsWithFallback(
+          phone,
+          "ניווט:",
+          opts.list.navButtons
+        );
+      }
+      return listSent;
+    }
+  }
+
+  return sendWhatsAppReplyButtonsWithFallback(
+    phone,
+    opts.body,
+    opts.buttons,
+    opts.footer,
+    opts.textFallback
+  );
+}
+
 export function organizerNotifyPhone(): string {
   return organizerNotifyPhones()[0] || "+972544854584";
 }

@@ -1,4 +1,4 @@
-import type { ReplyButton } from "./green-api";
+import type { ListSection, ReplyButton } from "./green-api";
 import { formatPhoneDisplay, normalizePhone, phonesMatch } from "./phone";
 import { inviteAbsoluteUrl, siteAbsoluteUrl } from "./invite-token";
 import { getSummary, listRsvps, getRsvpById } from "./store";
@@ -22,8 +22,18 @@ import {
   type OrganizerMenuSession,
 } from "./wa-organizer-session";
 
+/**
+ * Meta WhatsApp interactive guidance:
+ * - Reply buttons: up to 3 quick choices
+ * - List message: 3–10 choices (preferred for "many")
+ * Green API list is currently broken (403) → numbered text + nav buttons.
+ * PAGE_SIZE ≤8 so text fallback can use 9=home, 10/11=paging without clashing.
+ */
 const PAGE_SIZE = 8;
 const MAIN_PAGE_COUNT = 4;
+
+/** Max guests as reply buttons (leave ≥1 slot for אחורה; Meta max = 3). */
+const GUEST_BUTTON_MAX = 2;
 
 const STATUS_LABEL: Record<RsvpStatus, string> = {
   imported: "ממתין לאישור",
@@ -39,6 +49,14 @@ export type MenuReply = {
   textFallback?: string;
   buttons?: ReplyButton[];
   footer?: string;
+  /** Meta list message (3–10). Falls back to numbered `message` + buttons. */
+  list?: {
+    body: string;
+    buttonText: string;
+    title?: string;
+    sections: ListSection[];
+    navButtons?: ReplyButton[];
+  };
   exited?: boolean;
 };
 
@@ -172,9 +190,6 @@ function listTitle(filter: ListFilter): string {
   }
 }
 
-/** Max guests we can offer as reply buttons (leave 1 slot for אחורה). */
-const GUEST_BUTTON_MAX = 2;
-
 function renderList(
   screen: Extract<MenuScreen, { id: "list" }>,
   byId: Map<string, Rsvp>,
@@ -191,6 +206,7 @@ function renderList(
       : `*${title}*\nלא נמצאו אורחים.\n${navFooter()}`;
   }
 
+  // Few choices → bullets + reply buttons only (no numbers).
   const useGuestButtons = forButtons && slice.length <= GUEST_BUTTON_MAX;
 
   if (useGuestButtons) {
@@ -206,6 +222,7 @@ ${lines.join("\n")}
 בחרו אורח מהכפתורים.`;
   }
 
+  // Many choices → numbered text (Meta list fallback / Green API recommendation).
   const lines = slice.map((id, i) => {
     const g = byId.get(id);
     const name = g?.full_name || "ללא שם";
@@ -233,6 +250,18 @@ ${lines.join("\n")}
 ${more.length ? `\n${more.join("\n")}\n` : ""}
 בחרו מספר לצפייה בפרטים.
 ${navFooter()}`;
+}
+
+/** Clean body for interactive list (no numbers). */
+function renderListPickerBody(
+  screen: Extract<MenuScreen, { id: "list" }>
+): string {
+  const { start, slice, total } = pageSlice(screen.ids, screen.page);
+  const title = listTitle(screen.filter);
+  return `*${title}* (${total})
+עמוד ${screen.page + 1} · ${start + 1}–${start + slice.length}
+
+בחרו אורח מהרשימה.`;
 }
 
 export function formatGuestFull(guest: Rsvp, forButtons = true): string {
@@ -291,6 +320,7 @@ async function renderScreen(
   textFallback: string;
   buttons: ReplyButton[];
   footer?: string;
+  list?: MenuReply["list"];
 }> {
   const byId = new Map(all.map((r) => [r.id, r]));
   switch (screen.id) {
@@ -326,6 +356,8 @@ async function renderScreen(
     case "list": {
       const { slice, hasMore, hasPrev } = pageSlice(screen.ids, screen.page);
       const useGuestButtons = slice.length > 0 && slice.length <= GUEST_BUTTON_MAX;
+      const useGuestList =
+        slice.length >= 3 && slice.length <= 10 && !useGuestButtons;
       let buttons: ReplyButton[];
       if (slice.length === 0) {
         buttons = navButtons();
@@ -344,11 +376,36 @@ async function renderScreen(
       } else {
         buttons = navButtons({ hasPrev, hasNext: hasMore });
       }
+
+      const list: MenuReply["list"] | undefined = useGuestList
+        ? {
+            body: renderListPickerBody(screen),
+            buttonText: "בחרו אורח",
+            title: listTitle(screen.filter).slice(0, 60),
+            sections: [
+              {
+                title: "אורחים",
+                rows: slice.map((id, i) => {
+                  const g = byId.get(id);
+                  const phone = g ? formatPhoneDisplay(g.phone) : "";
+                  return {
+                    rowId: `g${i}`,
+                    title: shortName(g?.full_name || `אורח ${i + 1}`),
+                    ...(phone ? { description: phone } : {}),
+                  };
+                }),
+              },
+            ],
+            navButtons: navButtons({ hasPrev, hasNext: hasMore }),
+          }
+        : undefined;
+
       return {
         message: renderList(screen, byId, true),
         textFallback: renderList(screen, byId, false),
         buttons,
         footer: useGuestButtons ? undefined : "בחרו מספר אורח",
+        list,
       };
     }
     case "guest": {
@@ -400,6 +457,7 @@ function menuFromRendered(
     textFallback: string;
     buttons: ReplyButton[];
     footer?: string;
+    list?: MenuReply["list"];
   },
   extra?: { exited?: boolean }
 ): MenuReply {
@@ -410,6 +468,7 @@ function menuFromRendered(
     textFallback: rendered.textFallback,
     buttons: rendered.buttons,
     footer: rendered.footer,
+    list: rendered.list,
   };
 }
 
@@ -654,6 +713,7 @@ export async function handleOrganizerMenu(opts: {
         textFallback: rendered.textFallback,
         buttons: rendered.buttons,
         footer: rendered.footer,
+        list: rendered.list,
       };
     }
     const rendered = await renderScreen(session.screen, await listRsvps());
@@ -663,6 +723,7 @@ export async function handleOrganizerMenu(opts: {
       textFallback: rendered.textFallback,
       buttons: rendered.buttons,
       footer: rendered.footer,
+      list: rendered.list,
     };
   }
 
@@ -707,6 +768,7 @@ export async function handleOrganizerMenu(opts: {
         textFallback: rendered.textFallback,
         buttons: rendered.buttons,
         footer: rendered.footer,
+        list: rendered.list,
       };
     }
     return openList(phone, session, filter);
@@ -720,6 +782,7 @@ export async function handleOrganizerMenu(opts: {
       textFallback: rendered.textFallback,
       buttons: rendered.buttons,
       footer: rendered.footer,
+      list: rendered.list,
     };
   }
 
@@ -760,6 +823,7 @@ export async function handleOrganizerMenu(opts: {
       textFallback: rendered.textFallback,
       buttons: rendered.buttons,
       footer: rendered.footer,
+      list: rendered.list,
     };
   }
 
@@ -771,6 +835,7 @@ export async function handleOrganizerMenu(opts: {
       textFallback: rendered.textFallback,
       buttons: rendered.buttons,
       footer: rendered.footer,
+      list: rendered.list,
     };
   }
 

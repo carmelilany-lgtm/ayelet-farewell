@@ -1461,7 +1461,7 @@ export function AdminDashboard() {
           {contentSection === "whatsapp" && (
             <Panel
               title="הודעות WhatsApp"
-              description="בתזכורת מומלץ לציין שזה קישור אישי. ערכים ישנים ב־CMS מתעדכנים אוטומטית בקריאה; לשמירה קבועה — שחזרו לברירת מחדל ושמרו, או ערכו ידנית"
+              description="ערכים ישנים ב־CMS מתעדכנים אוטומטית בקריאה; לשמירה קבועה — שחזרו לברירת מחדל ושמרו, או ערכו ידנית"
             >
               <div className="content-preview">
                 <p className="content-preview-label">
@@ -1501,7 +1501,7 @@ export function AdminDashboard() {
                       label: "תזכורת — טרם נרשמו / עדכון סטטוס",
                       multiline: true,
                       rows: 12,
-                      hint: "{name} {dateTime} {place} · {siteUrl} {personalLink} · כולל ניסוח «קישור אישי»",
+                      hint: "{name} {dateTime} {place} · {siteUrl} {personalLink}",
                     },
                     {
                       key: "otpMessageTemplate",
