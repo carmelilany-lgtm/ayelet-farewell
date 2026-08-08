@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import { createInviteToken } from "./invite-token";
+import { normalizePhone, phonesMatch } from "./phone";
 import { getSupabaseAdmin, hasSupabaseConfig } from "./supabase";
 import type {
   PublicInviteView,
@@ -10,6 +11,7 @@ import type {
   RsvpSummary,
   TokenUpdateInput,
 } from "./types";
+import { isManualPendingGuest, normalizeGuestName } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "rsvps.json");
@@ -27,9 +29,26 @@ function normalizeRow(row: Rsvp): Rsvp {
   return {
     ...row,
     invite_token: row.invite_token || createInviteToken(),
+    sheet_order:
+      typeof row.sheet_order === "number" && Number.isFinite(row.sheet_order)
+        ? row.sheet_order
+        : null,
     reminder_sent_at: row.reminder_sent_at ?? null,
     reminder_message_id: row.reminder_message_id ?? null,
   };
+}
+
+function compareSheetOrder(a: Rsvp, b: Rsvp): number {
+  const ao = a.sheet_order;
+  const bo = b.sheet_order;
+  if (ao != null && bo != null && ao !== bo) return ao - bo;
+  if (ao != null && bo == null) return -1;
+  if (ao == null && bo != null) return 1;
+  const ai = a.imported_at || a.created_at;
+  const bi = b.imported_at || b.created_at;
+  const byTime = ai.localeCompare(bi);
+  if (byTime !== 0) return byTime;
+  return a.full_name.localeCompare(b.full_name, "he");
 }
 
 async function readLocal(): Promise<Rsvp[]> {
@@ -55,14 +74,22 @@ function summarize(rows: Rsvp[]): RsvpSummary {
   const eligibleForReminder = rows.filter(
     (r) => r.status === "imported" || r.status === "confirmed" || r.status === "maybe"
   );
+  const manualPending = rows.filter(isManualPendingGuest);
   return {
     total_records: rows.length,
     confirmed: rows.filter((r) => r.status === "confirmed").length,
     declined: rows.filter((r) => r.status === "declined").length,
     maybe: rows.filter((r) => r.status === "maybe").length,
-    imported_pending: rows.filter((r) => r.status === "imported").length,
+    imported_pending: rows.filter(
+      (r) => r.status === "imported" && !isManualPendingGuest(r)
+    ).length,
+    manual_pending: manualPending.length,
     total_guests_attending: rows
-      .filter((r) => r.status === "confirmed" || r.status === "imported")
+      .filter(
+        (r) =>
+          (r.status === "confirmed" || r.status === "imported") &&
+          !isManualPendingGuest(r)
+      )
       .reduce((sum, r) => sum + r.guest_count, 0),
     reminders_sent: rows.filter((r) => Boolean(r.reminder_sent_at)).length,
     reminders_pending: eligibleForReminder.filter((r) => !r.reminder_sent_at)
@@ -85,19 +112,17 @@ function toPublicView(row: Rsvp): PublicInviteView {
 
 export async function listRsvps(): Promise<Rsvp[]> {
   if (hasSupabaseConfig()) {
-    const { data, error } = await getSupabaseAdmin()
-      .from("rsvps")
-      .select("*")
-      .order("updated_at", { ascending: false });
+    // Sort in app code so missing sheet_order column (pre-migration) still works.
+    const { data, error } = await getSupabaseAdmin().from("rsvps").select("*");
     if (error) throw error;
-    return ((data ?? []) as Rsvp[]).map(normalizeRow);
+    return ((data ?? []) as Rsvp[]).map(normalizeRow).sort(compareSheetOrder);
   }
   const rows = await readLocal();
   const missing = rows.some(
     (r) => !r.invite_token || r.reminder_sent_at === undefined
   );
   if (missing) await writeLocal(rows);
-  return rows.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  return rows.map(normalizeRow).sort(compareSheetOrder);
 }
 
 export async function getSummary(): Promise<RsvpSummary> {
@@ -190,17 +215,53 @@ export async function clearReminderSent(
 }
 
 export async function getRsvpByPhone(phone: string): Promise<Rsvp | null> {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+
   if (hasSupabaseConfig()) {
-    const { data, error } = await getSupabaseAdmin()
+    const exact = await getSupabaseAdmin()
       .from("rsvps")
       .select("*")
-      .eq("phone", phone)
+      .eq("phone", normalized)
       .maybeSingle();
+    if (exact.error) throw exact.error;
+    if (exact.data) return normalizeRow(exact.data as Rsvp);
+
+    // Fallback: tolerate legacy / alternate formatting in DB
+    const { data, error } = await getSupabaseAdmin()
+      .from("rsvps")
+      .select("*");
     if (error) throw error;
-    return data ? normalizeRow(data as Rsvp) : null;
+    const match = (data || []).find((row) =>
+      phonesMatch((row as Rsvp).phone, normalized)
+    );
+    if (!match) return null;
+
+    // Canonicalize stored phone so future lookups are exact
+    if ((match as Rsvp).phone !== normalized) {
+      const { data: fixed, error: fixErr } = await getSupabaseAdmin()
+        .from("rsvps")
+        .update({ phone: normalized })
+        .eq("id", (match as Rsvp).id)
+        .select("*")
+        .maybeSingle();
+      if (fixErr) throw fixErr;
+      if (fixed) return normalizeRow(fixed as Rsvp);
+    }
+    return normalizeRow(match as Rsvp);
   }
+
   const rows = await readLocal();
-  return rows.find((r) => r.phone === phone) ?? null;
+  const exact = rows.find((r) => r.phone === normalized);
+  if (exact) return exact;
+  const match = rows.find((r) => phonesMatch(r.phone, normalized));
+  if (!match) return null;
+  if (match.phone !== normalized) {
+    match.phone = normalized;
+    match.updated_at = nowIso();
+    await writeLocal(rows);
+  }
+  return match;
 }
 
 function buildRsvpUpdate(input: TokenUpdateInput, timestamp: string) {
@@ -252,6 +313,157 @@ export async function updateRsvpByPhone(
   return rows[idx];
 }
 
+export async function updateRsvpById(
+  id: string,
+  input: {
+    status: Rsvp["status"];
+    guest_count: number;
+  }
+): Promise<Rsvp | null> {
+  const timestamp = nowIso();
+  const status = input.status;
+  const guest_count =
+    status === "declined" ? 0 : Math.max(1, Math.min(10, input.guest_count));
+  const patch: Record<string, unknown> = {
+    status,
+    guest_count,
+    updated_at: timestamp,
+    final_confirmed_at:
+      status === "confirmed" || status === "declined" || status === "maybe"
+        ? timestamp
+        : null,
+  };
+
+  if (hasSupabaseConfig()) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("rsvps")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .maybeSingle();
+    if (error) throw error;
+    return data ? normalizeRow(data as Rsvp) : null;
+  }
+
+  const rows = await readLocal();
+  const idx = rows.findIndex((r) => r.id === id);
+  if (idx < 0) return null;
+  rows[idx] = {
+    ...rows[idx],
+    ...patch,
+  } as Rsvp;
+  await writeLocal(rows);
+  return rows[idx];
+}
+
+export type GuestAddConflict = {
+  code:
+    | "ALREADY_CONFIRMED"
+    | "ALREADY_DECLINED"
+    | "PHONE_EXISTS"
+    | "NAME_ALREADY_CONFIRMED";
+  existing: Rsvp;
+};
+
+/** Detect if a manual add would duplicate someone already on the list. */
+export async function findGuestAddConflict(input: {
+  full_name: string;
+  phone: string;
+}): Promise<GuestAddConflict | null> {
+  const phone = normalizePhone(input.phone);
+  const fullName = input.full_name.trim();
+  if (!phone || !fullName) return null;
+
+  const byPhone = await getRsvpByPhone(phone);
+  if (byPhone) {
+    if (byPhone.status === "confirmed") {
+      return { code: "ALREADY_CONFIRMED", existing: byPhone };
+    }
+    if (byPhone.status === "declined") {
+      return { code: "ALREADY_DECLINED", existing: byPhone };
+    }
+    return { code: "PHONE_EXISTS", existing: byPhone };
+  }
+
+  const nameKey = normalizeGuestName(fullName);
+  const sameNameConfirmed = (await listRsvps()).find(
+    (r) =>
+      r.status === "confirmed" && normalizeGuestName(r.full_name) === nameKey
+  );
+  if (sameNameConfirmed) {
+    return { code: "NAME_ALREADY_CONFIRMED", existing: sameNameConfirmed };
+  }
+
+  return null;
+}
+
+/**
+ * Manually add a guest who has not registered yet (admin only).
+ * Creates status=imported so they appear in pending reminders.
+ * Rejects if phone/name already exists among confirmed (or any) guests.
+ */
+export async function createImportedGuest(input: {
+  full_name: string;
+  phone: string;
+}): Promise<Rsvp> {
+  const phone = normalizePhone(input.phone);
+  if (!phone) throw new Error("INVALID_PHONE");
+
+  const fullName = input.full_name.trim();
+  if (!fullName) throw new Error("INVALID_NAME");
+
+  const conflict = await findGuestAddConflict({ full_name: fullName, phone });
+  if (conflict) throw new Error(conflict.code);
+
+  const timestamp = nowIso();
+  const row: Rsvp = {
+    id: randomUUID(),
+    invite_token: createInviteToken(),
+    full_name: fullName,
+    phone,
+    // Guest fills count on RSVP; keep 0 until then.
+    guest_count: 0,
+    status: "imported",
+    final_confirmed_at: null,
+    wants_video_blessing: null,
+    wants_to_speak: null,
+    excitement: null,
+    notes: null,
+    imported_at: null,
+    sheet_order: null,
+    reminder_sent_at: null,
+    reminder_message_id: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+
+  if (hasSupabaseConfig()) {
+    const { data, error } = await getSupabaseAdmin()
+      .from("rsvps")
+      .insert({
+        full_name: row.full_name,
+        phone: row.phone,
+        guest_count: row.guest_count,
+        status: row.status,
+        invite_token: row.invite_token,
+        final_confirmed_at: null,
+        notes: null,
+      })
+      .select("*")
+      .single();
+    if (error) {
+      if (error.code === "23505") throw new Error("PHONE_EXISTS");
+      throw error;
+    }
+    return normalizeRow(data as Rsvp);
+  }
+
+  const rows = await readLocal();
+  rows.push(row);
+  await writeLocal(rows);
+  return row;
+}
+
 /** Create a new guest from phone OTP self-registration, or update if exists. */
 export async function upsertRsvpByPhone(input: {
   phone: string;
@@ -291,6 +503,7 @@ export async function upsertRsvpByPhone(input: {
     excitement: null,
     notes: input.notes ?? null,
     imported_at: null,
+    sheet_order: null,
     reminder_sent_at: null,
     reminder_message_id: null,
     created_at: timestamp,
@@ -429,7 +642,16 @@ export async function importRsvps(rows: RsvpImportRow[]): Promise<{
       if (existing.error) throw existing.error;
 
       if (existing.data) {
-        if (existing.data.final_confirmed_at) {
+        const locked =
+          Boolean(existing.data.final_confirmed_at) ||
+          existing.data.status !== "imported";
+        if (locked) {
+          // Keep confirmation intact; only sync sheet order for admin list.
+          const { error } = await getSupabaseAdmin()
+            .from("rsvps")
+            .update({ sheet_order: row.sheet_order })
+            .eq("phone", row.phone);
+          if (error) throw error;
           skipped += 1;
           continue;
         }
@@ -443,6 +665,7 @@ export async function importRsvps(rows: RsvpImportRow[]): Promise<{
             excitement: row.excitement,
             notes: row.notes,
             imported_at: row.imported_at,
+            sheet_order: row.sheet_order,
             status: "imported",
             invite_token: existing.data.invite_token || createInviteToken(),
           })
@@ -461,6 +684,7 @@ export async function importRsvps(rows: RsvpImportRow[]): Promise<{
           excitement: row.excitement,
           notes: row.notes,
           imported_at: row.imported_at,
+          sheet_order: row.sheet_order,
         });
         if (error) throw error;
         inserted += 1;
@@ -475,7 +699,13 @@ export async function importRsvps(rows: RsvpImportRow[]): Promise<{
   for (const row of rows) {
     const existing = byPhone.get(row.phone);
     if (existing) {
-      if (existing.final_confirmed_at) {
+      const locked =
+        Boolean(existing.final_confirmed_at) || existing.status !== "imported";
+      if (locked) {
+        byPhone.set(row.phone, {
+          ...existing,
+          sheet_order: row.sheet_order,
+        });
         skipped += 1;
         continue;
       }
@@ -489,6 +719,7 @@ export async function importRsvps(rows: RsvpImportRow[]): Promise<{
         excitement: row.excitement,
         notes: row.notes,
         imported_at: row.imported_at,
+        sheet_order: row.sheet_order,
         status: "imported",
         updated_at: nowIso(),
       };
@@ -508,6 +739,7 @@ export async function importRsvps(rows: RsvpImportRow[]): Promise<{
         excitement: row.excitement,
         notes: row.notes,
         imported_at: row.imported_at,
+        sheet_order: row.sheet_order,
         reminder_sent_at: null,
         reminder_message_id: null,
         created_at: nowIso(),

@@ -36,12 +36,21 @@ function parseGuestCount(value: unknown): number | null {
 }
 
 function parseImportedAt(value: unknown): string {
+  // Excel serial date (days since 1899-12-30)
+  if (typeof value === "number" && Number.isFinite(value) && value > 20000) {
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    const ms = excelEpoch + value * 24 * 60 * 60 * 1000;
+    const d = new Date(ms);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString();
   }
-  if (typeof value === "string" || typeof value === "number") {
+  if (typeof value === "string") {
     const d = new Date(value);
-    if (!Number.isNaN(d.getTime())) return d.toISOString();
+    if (!Number.isNaN(d.getTime()) && d.getFullYear() > 1990) {
+      return d.toISOString();
+    }
   }
   return new Date().toISOString();
 }
@@ -58,6 +67,7 @@ export function parseXlsxToImportRows(filePath: string): RsvpImportRow[] {
   // Skip header
   const body = matrix.slice(1);
   const byPhone = new Map<string, RsvpImportRow>();
+  let nextOrder = 0;
 
   for (const row of body) {
     const fullName = cellStr(row[1]);
@@ -68,10 +78,11 @@ export function parseXlsxToImportRows(filePath: string): RsvpImportRow[] {
 
     const phone = normalizePhone(phoneRaw as string | number | null);
     if (!phone) {
-      console.warn(`Skipping "${fullName}" — invalid phone: ${phoneRaw}`);
+      console.warn(`Skipping "${fullName}" - invalid phone: ${phoneRaw}`);
       continue;
     }
 
+    const existing = byPhone.get(phone);
     const next: RsvpImportRow = {
       full_name: fullName,
       phone,
@@ -81,13 +92,17 @@ export function parseXlsxToImportRows(filePath: string): RsvpImportRow[] {
       excitement: parseExcitement(row[6]),
       notes: cellStr(row[7]),
       imported_at: parseImportedAt(row[0]),
+      // Keep first appearance order in the sheet for unique phones
+      sheet_order: existing?.sheet_order ?? nextOrder++,
     };
 
     // Keep the latest row for duplicate phones (e.g. יעל גילעת)
     byPhone.set(phone, next);
   }
 
-  return Array.from(byPhone.values());
+  return Array.from(byPhone.values()).sort(
+    (a, b) => a.sheet_order - b.sheet_order
+  );
 }
 
 async function main() {
@@ -104,11 +119,31 @@ async function main() {
 
   const result = await importRsvps(rows);
   console.log(
-    `Import done — inserted: ${result.inserted}, updated: ${result.updated}, skipped: ${result.skipped}`
+    `Import done - inserted: ${result.inserted}, updated: ${result.updated}, skipped: ${result.skipped}`
   );
+
+  // Verify every imported phone is findable
+  const { getRsvpByPhone } = await import("../lib/store");
+  const missing: string[] = [];
+  for (const row of rows) {
+    const found = await getRsvpByPhone(row.phone);
+    if (!found) missing.push(`${row.full_name} (${row.phone})`);
+  }
+  if (missing.length) {
+    console.error("IMPORT VERIFY FAILED — missing phones:");
+    missing.forEach((m) => console.error("  -", m));
+    process.exit(1);
+  }
+  console.log(`Import verify OK — all ${rows.length} phones found in store`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+const isDirectRun =
+  typeof process.argv[1] === "string" &&
+  /import-xlsx\.(ts|js|mjs|cjs)$/.test(process.argv[1]);
+
+if (isDirectRun) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

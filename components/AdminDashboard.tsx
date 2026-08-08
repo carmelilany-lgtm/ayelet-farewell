@@ -1,15 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { inviteAbsoluteUrl } from "@/lib/invite-token";
-import { formatPhoneDisplay } from "@/lib/phone";
+import { formatPhoneDisplay, normalizePhone, phonesMatch } from "@/lib/phone";
 import {
   DEFAULT_SITE_CONTENT,
   formatProgramLines,
   parseProgramLine,
   type SiteContent,
 } from "@/lib/site-content-defaults";
-import type { Rsvp, RsvpSummary } from "@/lib/types";
+import { ProgramScheduleEditor } from "@/components/ProgramScheduleEditor";
+import {
+  isManualPendingGuest,
+  normalizeGuestName,
+  type Rsvp,
+  type RsvpSummary,
+} from "@/lib/types";
 
 const statusLabel: Record<Rsvp["status"], string> = {
   imported: "ממתין לאישור סופי",
@@ -137,6 +143,59 @@ function LinkPair({
   );
 }
 
+function Accordion({
+  title,
+  hint,
+  children,
+  defaultOpen = false,
+  /** Changing to a truthy value opens the accordion (e.g. search query). */
+  openSignal,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  openSignal?: string | number | false | null;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const openRef = useRef(open);
+  const prevSignalRef = useRef<string | number | false | null | undefined>(null);
+  const openBeforeSignalRef = useRef(defaultOpen);
+
+  openRef.current = open;
+
+  useEffect(() => {
+    const prev = prevSignalRef.current;
+    const next = openSignal || null;
+
+    if (next) {
+      // New / updated search hit — open, remembering prior state once.
+      if (!prev) openBeforeSignalRef.current = openRef.current;
+      if (next !== prev) setOpen(true);
+    } else if (prev) {
+      // Search cleared — restore state from before the search opened it.
+      setOpen(openBeforeSignalRef.current);
+    }
+
+    prevSignalRef.current = next;
+  }, [openSignal]);
+
+  return (
+    <details
+      className="content-accordion"
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary className="content-accordion-summary">
+        <span className="content-accordion-title">{title}</span>
+        {hint ? <span className="content-accordion-hint">{hint}</span> : null}
+        <span className="content-accordion-chevron" aria-hidden="true" />
+      </summary>
+      <div className="content-accordion-body">{children}</div>
+    </details>
+  );
+}
+
 function Panel({
   title,
   description,
@@ -152,7 +211,7 @@ function Panel({
         <h2>{title}</h2>
         <p>{description}</p>
       </div>
-      {children}
+      <div className="content-panel-body">{children}</div>
     </section>
   );
 }
@@ -176,11 +235,19 @@ export function AdminDashboard() {
   const [origin, setOrigin] = useState("");
   const [dirty, setDirty] = useState(false);
   const [guestSearch, setGuestSearch] = useState("");
+  const [drafts, setDrafts] = useState<
+    Record<string, { status: Rsvp["status"]; guest_count: number }>
+  >({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [newGuestName, setNewGuestName] = useState("");
+  const [newGuestPhone, setNewGuestPhone] = useState("");
+  const [addingGuest, setAddingGuest] = useState(false);
 
-  const filteredRsvps = useMemo(() => {
-    const q = guestSearch.trim().toLowerCase();
-    if (!q) return rsvps;
-    return rsvps.filter((r) => {
+  const matchesGuestSearch = useCallback(
+    (r: Rsvp) => {
+      const q = guestSearch.trim().toLowerCase();
+      if (!q) return true;
       const name = r.full_name.toLowerCase();
       const phone = formatPhoneDisplay(r.phone).toLowerCase();
       const phoneDigits = r.phone.replace(/\D/g, "");
@@ -190,8 +257,56 @@ export function AdminDashboard() {
         phone.includes(q) ||
         (qDigits.length >= 3 && phoneDigits.includes(qDigits))
       );
-    });
-  }, [rsvps, guestSearch]);
+    },
+    [guestSearch]
+  );
+
+  const confirmedPhones = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rsvps) {
+      if (r.status !== "confirmed") continue;
+      const n = normalizePhone(r.phone) ?? r.phone;
+      set.add(n);
+    }
+    return set;
+  }, [rsvps]);
+
+  /** Manual pending only — never anyone who already confirmed. */
+  const isManualPendingOnly = useCallback(
+    (r: Rsvp) => {
+      if (!isManualPendingGuest(r)) return false;
+      const n = normalizePhone(r.phone) ?? r.phone;
+      return !confirmedPhones.has(n);
+    },
+    [confirmedPhones]
+  );
+
+  const manualPendingRsvps = useMemo(
+    () => rsvps.filter((r) => isManualPendingOnly(r) && matchesGuestSearch(r)),
+    [rsvps, isManualPendingOnly, matchesGuestSearch]
+  );
+
+  const registeredRsvps = useMemo(
+    () =>
+      rsvps.filter((r) => !isManualPendingOnly(r) && matchesGuestSearch(r)),
+    [rsvps, isManualPendingOnly, matchesGuestSearch]
+  );
+
+  const registeredTotal = useMemo(
+    () => rsvps.filter((r) => !isManualPendingOnly(r)).length,
+    [rsvps, isManualPendingOnly]
+  );
+
+  const manualPendingTotal = useMemo(
+    () => rsvps.filter(isManualPendingOnly).length,
+    [rsvps, isManualPendingOnly]
+  );
+
+  const manualRemindersPending = useMemo(
+    () =>
+      rsvps.filter((r) => isManualPendingOnly(r) && !r.reminder_sent_at).length,
+    [rsvps, isManualPendingOnly]
+  );
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -219,6 +334,8 @@ export function AdminDashboard() {
     const rsvpData = await rsvpRes.json();
     setSummary(rsvpData.summary);
     setRsvps(rsvpData.rsvps);
+    setDrafts({});
+    setEditingId(null);
 
     if (contentRes.ok) {
       const contentData = await contentRes.json();
@@ -255,6 +372,176 @@ export function AdminDashboard() {
     setAuthed(false);
     setSummary(null);
     setRsvps([]);
+    setDrafts({});
+    setEditingId(null);
+  }
+
+  function draftFor(r: Rsvp) {
+    return (
+      drafts[r.id] ?? {
+        status: r.status,
+        guest_count: Math.max(r.guest_count || 0, r.status === "declined" ? 0 : 1),
+      }
+    );
+  }
+
+  function isDraftDirty(r: Rsvp) {
+    const d = draftFor(r);
+    const currentCount =
+      r.status === "declined" ? 0 : Math.max(r.guest_count || 1, 1);
+    return d.status !== r.status || d.guest_count !== currentCount;
+  }
+
+  function setDraft(
+    id: string,
+    patch: Partial<{ status: Rsvp["status"]; guest_count: number }>
+  ) {
+    setDrafts((prev) => {
+      const current = rsvps.find((r) => r.id === id);
+      const base = prev[id] ?? {
+        status: current?.status ?? "imported",
+        guest_count: Math.max(current?.guest_count || 1, 1),
+      };
+      const next = { ...base, ...patch };
+      if (next.status === "declined") next.guest_count = 0;
+      else if (next.guest_count < 1) next.guest_count = 1;
+      return { ...prev, [id]: next };
+    });
+  }
+
+  function startEditGuest(r: Rsvp) {
+    setDrafts((prev) => ({
+      ...prev,
+      [r.id]: {
+        status: r.status,
+        guest_count: Math.max(
+          r.guest_count || 0,
+          r.status === "declined" ? 0 : 1
+        ),
+      },
+    }));
+    setEditingId(r.id);
+  }
+
+  function cancelEditGuest(id: string) {
+    setDrafts((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setEditingId((current) => (current === id ? null : current));
+  }
+
+  async function saveGuestDraft(r: Rsvp) {
+    const draft = draftFor(r);
+    if (!isDraftDirty(r)) {
+      cancelEditGuest(r.id);
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    setSavingId(r.id);
+    try {
+      const res = await fetch("/api/admin/rsvps", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: r.id,
+          status: draft.status,
+          guest_count: draft.guest_count,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "שגיאה בעדכון אורח");
+        return;
+      }
+      setRsvps((list) =>
+        list.map((row) => (row.id === r.id ? data.rsvp : row))
+      );
+      if (data.summary) setSummary(data.summary);
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[r.id];
+        return next;
+      });
+      setEditingId((current) => (current === r.id ? null : current));
+      setInfo(`עודכן: ${data.rsvp.full_name}`);
+    } catch {
+      setError("בעיית רשת בעדכון אורח");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function addGuest(e: React.FormEvent) {
+    e.preventDefault();
+    const full_name = newGuestName.trim();
+    const phone = newGuestPhone.trim();
+    if (!full_name || !phone) {
+      setError("נא להזין שם ומספר טלפון");
+      return;
+    }
+
+    const byPhone = rsvps.find((r) => phonesMatch(r.phone, phone));
+    if (byPhone) {
+      if (byPhone.status === "confirmed") {
+        setError(
+          `${byPhone.full_name} כבר אישר/ה הגעה — לא ניתן להוסיף לטרם נרשמו`
+        );
+      } else if (byPhone.status === "declined") {
+        setError(`${byPhone.full_name} כבר מסומן/ת כלא מגיע/ה`);
+      } else {
+        setError(`מספר הטלפון כבר קיים אצל ${byPhone.full_name}`);
+      }
+      return;
+    }
+
+    const nameKey = normalizeGuestName(full_name);
+    const byNameConfirmed = rsvps.find(
+      (r) =>
+        r.status === "confirmed" &&
+        normalizeGuestName(r.full_name) === nameKey
+    );
+    if (byNameConfirmed) {
+      setError(
+        `כבר יש אורח/ת מאושר/ת באותו שם: ${byNameConfirmed.full_name} (${formatPhoneDisplay(byNameConfirmed.phone)})`
+      );
+      return;
+    }
+
+    setError(null);
+    setInfo(null);
+    setAddingGuest(true);
+    try {
+      const res = await fetch("/api/admin/rsvps", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_name, phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "שגיאה בהוספת אורח");
+        return;
+      }
+
+      setRsvps((list) => [data.rsvp, ...list]);
+      if (data.summary) setSummary(data.summary);
+      setNewGuestName("");
+      setNewGuestPhone("");
+      setInfo(`נוסף: ${data.rsvp.full_name}`);
+    } catch {
+      setError("בעיית רשת בהוספת אורח");
+    } finally {
+      setAddingGuest(false);
+    }
+  }
+
+  function openReminderEditor() {
+    setTab("content");
+    setContentSection("whatsapp");
+    setError(null);
+    setInfo(null);
   }
 
   async function copyLink(r: Rsvp) {
@@ -302,7 +589,7 @@ export function AdminDashboard() {
     const pending = summary?.reminders_pending ?? 0;
     if (
       !confirm(
-        `לשלוח תזכורת WhatsApp ידנית ל־${pending} אורחים?\n(לא נשלח אוטומטית — רק באישור הזה)`
+        `לשלוח תזכורת WhatsApp ידנית ל־${pending} אורחים?\n(לא נשלח אוטומטית - רק באישור הזה)`
       )
     )
       return;
@@ -321,6 +608,39 @@ export function AdminDashboard() {
         return;
       }
       setInfo(`נשלחו ${data.sent} הודעות · נכשלו ${data.failed}`);
+      await load();
+    } catch {
+      setError("בעיית רשת בשליחה מרובה");
+    } finally {
+      setBulkSending(false);
+    }
+  }
+
+  async function sendManualPendingReminders() {
+    if (manualRemindersPending < 1) return;
+    if (
+      !confirm(
+        `לשלוח תזכורת WhatsApp ל־${manualRemindersPending} אורחים מהוספה ידנית?\n(רק מי שטרם נרשם וטרם נשלחה לו תזכורת)`
+      )
+    )
+      return;
+    setError(null);
+    setInfo(null);
+    setBulkSending(true);
+    try {
+      const res = await fetch("/api/admin/send-reminder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manualPendingOnly: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "שגיאה בשליחה מרובה");
+        return;
+      }
+      setInfo(
+        `נשלחו ${data.sent} תזכורות להוספה ידנית · נכשלו ${data.failed}`
+      );
       await load();
     } catch {
       setError("בעיית רשת בשליחה מרובה");
@@ -432,6 +752,186 @@ export function AdminDashboard() {
     return String(content[key] ?? "");
   }
 
+  function renderGuestTable(list: Rsvp[], emptyLabel: string) {
+    return (
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>שם</th>
+              <th>טלפון</th>
+              <th>אורחים</th>
+              <th>סטטוס</th>
+              <th>תזכורת</th>
+              <th>פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="admin-empty">
+                  {emptyLabel}
+                </td>
+              </tr>
+            ) : (
+              list.map((r) => {
+                const draft = draftFor(r);
+                const editing = editingId === r.id;
+                const manualPending = isManualPendingGuest(r);
+                const displayStatus =
+                  draft.status === "confirmed"
+                    ? "אושר"
+                    : draft.status === "declined"
+                      ? "לא מגיע/ה"
+                      : "ממתין לאישור";
+                const displayCount =
+                  draft.status === "declined" ? 0 : draft.guest_count;
+                return (
+                  <tr
+                    key={r.id}
+                    className={editing ? "admin-row-editing" : undefined}
+                  >
+                    <td data-label="שם">{r.full_name}</td>
+                    <td data-label="טלפון" dir="ltr">
+                      {formatPhoneDisplay(r.phone)}
+                    </td>
+                    <td data-label="אורחים">
+                      {manualPending ? (
+                        <span className="admin-count-pending">
+                          ימולא ע״י האורח
+                        </span>
+                      ) : editing ? (
+                        <select
+                          className="admin-inline-select"
+                          value={
+                            draft.status === "declined" ? 0 : draft.guest_count
+                          }
+                          disabled={
+                            draft.status === "declined" || savingId === r.id
+                          }
+                          onChange={(e) =>
+                            setDraft(r.id, {
+                              guest_count: Number(e.target.value),
+                            })
+                          }
+                          aria-label={`מספר אורחים של ${r.full_name}`}
+                        >
+                          {draft.status === "declined" ? (
+                            <option value={0}>0</option>
+                          ) : (
+                            [1, 2, 3, 4, 5, 6].map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      ) : (
+                        displayCount
+                      )}
+                    </td>
+                    <td data-label="סטטוס">
+                      {editing ? (
+                        <select
+                          className="admin-inline-select"
+                          value={draft.status}
+                          disabled={savingId === r.id}
+                          onChange={(e) =>
+                            setDraft(r.id, {
+                              status: e.target.value as Rsvp["status"],
+                            })
+                          }
+                          aria-label={`סטטוס של ${r.full_name}`}
+                        >
+                          <option value="imported">ממתין לאישור</option>
+                          <option value="confirmed">אושר</option>
+                          <option value="declined">לא מגיע/ה</option>
+                        </select>
+                      ) : (
+                        displayStatus
+                      )}
+                    </td>
+                    <td data-label="תזכורת">
+                      {r.reminder_sent_at ? (
+                        <span className="pill status-confirmed">נשלח</span>
+                      ) : r.status === "declined" ? (
+                        "-"
+                      ) : (
+                        <span className="pill status-imported">ממתין</span>
+                      )}
+                    </td>
+                    <td data-label="פעולות">
+                      <div className="link-actions">
+                        <button
+                          type="button"
+                          className="link-btn"
+                          disabled={
+                            savingId === r.id ||
+                            bulkSending ||
+                            resetting ||
+                            (editingId !== null && !editing)
+                          }
+                          onClick={() => {
+                            if (editing) void saveGuestDraft(r);
+                            else startEditGuest(r);
+                          }}
+                        >
+                          {savingId === r.id
+                            ? "שומר…"
+                            : editing
+                              ? "שמור"
+                              : "עריכה"}
+                        </button>
+                        <button
+                          type="button"
+                          className="link-btn"
+                          disabled={
+                            sendingId === r.id ||
+                            bulkSending ||
+                            resetting ||
+                            editing ||
+                            draft.status === "declined"
+                          }
+                          onClick={() =>
+                            sendReminder(r.id, Boolean(r.reminder_sent_at))
+                          }
+                        >
+                          {sendingId === r.id
+                            ? "שולח…"
+                            : r.reminder_sent_at
+                              ? "שלח שוב"
+                              : "שלח תזכורת"}
+                        </button>
+                        {r.reminder_sent_at && (
+                          <button
+                            type="button"
+                            className="link-btn ghost"
+                            disabled={bulkSending || resetting || editing}
+                            onClick={() => resetReminder(r.id)}
+                          >
+                            איפוס
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="link-btn ghost"
+                          disabled={editing}
+                          onClick={() => copyLink(r)}
+                        >
+                          {copiedId === r.id ? "הועתק" : "העתק קישור"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   if (loading) return <p className="admin-muted">טוען…</p>;
 
   if (!authed) {
@@ -439,7 +939,7 @@ export function AdminDashboard() {
       <form className="admin-login" onSubmit={login}>
         <div className="admin-login-ornament" aria-hidden="true" />
         <h1>ניהול</h1>
-        <p>מסיבת פרידה — איילת</p>
+        <p>מסיבת פרידה - איילת</p>
         <label htmlFor="admin_password">סיסמה</label>
         <input
           id="admin_password"
@@ -498,6 +998,10 @@ export function AdminDashboard() {
             <Stat label="סה״כ" value={summary.total_records} />
             <Stat label="אושרו סופית" value={summary.confirmed} />
             <Stat label="ממתינים" value={summary.imported_pending} />
+            <Stat
+              label="טרם נרשמו (ידני)"
+              value={summary.manual_pending ?? manualPendingTotal}
+            />
             <Stat label="תזכורות נשלחו" value={summary.reminders_sent} />
             <Stat label="תזכורות ממתינות" value={summary.reminders_pending} />
             <Stat label="אורחים צפויים" value={summary.total_guests_attending} />
@@ -517,12 +1021,31 @@ export function AdminDashboard() {
             <button
               type="button"
               className="admin-btn ghost"
+              onClick={sendManualPendingReminders}
+              disabled={
+                bulkSending || resetting || manualRemindersPending < 1
+              }
+            >
+              {bulkSending
+                ? "שולח…"
+                : `שלח תזכורת להוספה ידנית (${manualRemindersPending})`}
+            </button>
+            <button
+              type="button"
+              className="admin-btn ghost"
               onClick={resetAllReminders}
               disabled={bulkSending || resetting || !summary.reminders_sent}
             >
               {resetting
                 ? "מאפס…"
                 : `איפוס כל התזכורות (${summary.reminders_sent})`}
+            </button>
+            <button
+              type="button"
+              className="admin-btn ghost"
+              onClick={openReminderEditor}
+            >
+              עריכת נוסח התזכורת
             </button>
             <a className="admin-btn ghost" href="/api/admin/rsvps?format=csv">
               ייצוא CSV
@@ -541,97 +1064,111 @@ export function AdminDashboard() {
             />
             {guestSearch.trim() && (
               <p className="admin-search-meta">
-                מציג {filteredRsvps.length} מתוך {rsvps.length}
+                מציג {registeredRsvps.length + manualPendingRsvps.length} מתוך{" "}
+                {rsvps.length}
               </p>
             )}
           </div>
 
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>שם</th>
-                  <th>טלפון</th>
-                  <th>אורחים</th>
-                  <th>סטטוס</th>
-                  <th>תזכורת</th>
-                  <th>פעולות</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRsvps.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="admin-empty">
-                      {guestSearch.trim()
-                        ? "לא נמצאו אורחים לחיפוש הזה"
-                        : "אין אורחים עדיין"}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRsvps.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.full_name}</td>
-                    <td dir="ltr">{formatPhoneDisplay(r.phone)}</td>
-                    <td>{r.guest_count}</td>
-                    <td>
-                      <span className={`pill status-${r.status}`}>
-                        {statusLabel[r.status]}
-                      </span>
-                    </td>
-                    <td>
-                      {r.reminder_sent_at ? (
-                        <span className="pill status-confirmed">נשלח</span>
-                      ) : r.status === "declined" ? (
-                        "—"
-                      ) : (
-                        <span className="pill status-imported">ממתין</span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="link-actions">
-                        <button
-                          type="button"
-                          className="link-btn"
-                          disabled={
-                            sendingId === r.id ||
-                            bulkSending ||
-                            resetting ||
-                            r.status === "declined"
-                          }
-                          onClick={() =>
-                            sendReminder(r.id, Boolean(r.reminder_sent_at))
-                          }
-                        >
-                          {sendingId === r.id
-                            ? "שולח…"
-                            : r.reminder_sent_at
-                              ? "שלח שוב"
-                              : "שלח תזכורת"}
-                        </button>
-                        {r.reminder_sent_at && (
-                          <button
-                            type="button"
-                            className="link-btn ghost"
-                            disabled={bulkSending || resetting}
-                            onClick={() => resetReminder(r.id)}
-                          >
-                            איפוס
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="link-btn ghost"
-                          onClick={() => copyLink(r)}
-                        >
-                          {copiedId === r.id ? "הועתק" : "העתק קישור"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div className="admin-guest-accordions content-accordion-list">
+            <Accordion
+              title="הוספת אורח ידנית"
+              hint="שם + טלפון"
+              defaultOpen={false}
+            >
+              <p className="admin-guest-accordion-lead">
+                שם ומספר טלפון בלבד — למי שטרם נרשם. לא ניתן להוסיף מי שכבר
+                אישר/ה הגעה.
+              </p>
+              <form
+                className="admin-add-guest"
+                onSubmit={(e) => void addGuest(e)}
+              >
+                <div className="admin-add-guest-fields">
+                  <label htmlFor="new_guest_name">
+                    שם מלא
+                    <input
+                      id="new_guest_name"
+                      type="text"
+                      value={newGuestName}
+                      onChange={(e) => setNewGuestName(e.target.value)}
+                      placeholder="שם פרטי ומשפחה"
+                      autoComplete="name"
+                      disabled={addingGuest}
+                      required
+                    />
+                  </label>
+                  <label htmlFor="new_guest_phone">
+                    טלפון נייד
+                    <input
+                      id="new_guest_phone"
+                      type="tel"
+                      dir="ltr"
+                      value={newGuestPhone}
+                      onChange={(e) => setNewGuestPhone(e.target.value)}
+                      placeholder="05X-XXXXXXX"
+                      autoComplete="tel"
+                      disabled={addingGuest}
+                      required
+                    />
+                  </label>
+                </div>
+                <div className="admin-add-guest-actions">
+                  <button
+                    type="submit"
+                    className="admin-btn primary"
+                    disabled={addingGuest || bulkSending || resetting}
+                  >
+                    {addingGuest ? "מוסיף…" : "הוספה לרשימה"}
+                  </button>
+                </div>
+              </form>
+            </Accordion>
+
+            <Accordion
+              key={manualPendingTotal > 0 ? "manual-has" : "manual-empty"}
+              title={`טרם נרשמו · הוספה ידנית (${manualPendingTotal})`}
+              hint="עד שיאשרו"
+              defaultOpen={manualPendingTotal > 0}
+              openSignal={
+                guestSearch.trim() && manualPendingRsvps.length > 0
+                  ? guestSearch.trim()
+                  : null
+              }
+            >
+              <p className="admin-guest-accordion-lead">
+                מופיעים כאן בנפרד עד שיאשרו או יעדכנו סטטוס — ואז עוברים לרשימה
+                הכללית.
+              </p>
+              {renderGuestTable(
+                manualPendingRsvps,
+                guestSearch.trim()
+                  ? "לא נמצאו אורחים ידניים לחיפוש הזה"
+                  : "אין אורחים ידניים שממתינים לרישום"
+              )}
+            </Accordion>
+
+            <Accordion
+              title={`רשימת אורחים (${registeredTotal})`}
+              hint="אושרו / יובאו / סירבו"
+              defaultOpen
+              openSignal={
+                guestSearch.trim() && registeredRsvps.length > 0
+                  ? guestSearch.trim()
+                  : null
+              }
+            >
+              <p className="admin-guest-accordion-lead">
+                מי שאישרו, סירבו, או יובאו מהרשימה — כולל אורחים ידניים אחרי
+                עדכון.
+              </p>
+              {renderGuestTable(
+                registeredRsvps,
+                guestSearch.trim()
+                  ? "לא נמצאו אורחים לחיפוש הזה"
+                  : "אין אורחים עדיין"
+              )}
+            </Accordion>
           </div>
         </>
       )}
@@ -656,24 +1193,23 @@ export function AdminDashboard() {
           {contentSection === "hero" && (
             <Panel
               title="דף ראשי"
-              description="מה שמופיע בראש העמוד — ציטוט, כותרת, תאריך ומקום"
+              description="כותרת, תאריך, מקום וכפתורים בראש העמוד"
             >
               <Fields
                 columns={2}
                 fieldValue={fieldValue}
                 onChange={updateField}
                 fields={[
-                  { key: "quote", label: "ציטוט", span2: true },
-                  { key: "quoteSource", label: "מקור", span2: true },
-                  { key: "banner", label: "כותרת משנה" },
                   { key: "title", label: "כותרת ראשית" },
                   { key: "dateTime", label: "תאריך ושעה" },
-                  { key: "place", label: "מיקום" },
-                  { key: "ctaLabel", label: "טקסט כפתור אישור" },
+                  { key: "place", label: "מיקום", span2: true },
+                  { key: "ctaLabel", label: "כפתור אישור הגעה" },
+                  { key: "detailsLinkLabel", label: "קישור פרטי האירוע" },
+                  { key: "viewInviteLabel", label: "קישור צפייה בהזמנה" },
                   {
-                    key: "coverImage",
-                    label: "תמונת רקע",
-                    hint: "למשל /invite.jpg",
+                    key: "countdownDone",
+                    label: "טקסט אחרי שהערב התחיל",
+                    span2: true,
                   },
                   {
                     key: "footer",
@@ -688,20 +1224,25 @@ export function AdminDashboard() {
           {contentSection === "program" && (
             <Panel
               title="תוכנית הערב"
-              description="לוח הזמנים והערות שמופיעים באזור הפרטים"
+              description="לוח הזמנים והערות באזור הפרטים"
             >
               <Fields
                 fieldValue={fieldValue}
                 onChange={updateField}
+                fields={[{ key: "programTitle", label: "כותרת" }]}
+              />
+              <ProgramScheduleEditor
+                items={content.programItems}
+                onChange={(programItems) => {
+                  setDirty(true);
+                  setInfo(null);
+                  setContent((c) => ({ ...c, programItems }));
+                }}
+              />
+              <Fields
+                fieldValue={fieldValue}
+                onChange={updateField}
                 fields={[
-                  { key: "programTitle", label: "כותרת" },
-                  {
-                    key: "programItems",
-                    label: "פריטים",
-                    multiline: true,
-                    rows: 5,
-                    hint: "שורה לכל פריט: 18:00 | ברכות ומוזיקה",
-                  },
                   { key: "hosts", label: "הנחייה" },
                   {
                     key: "giftNote",
@@ -717,14 +1258,12 @@ export function AdminDashboard() {
           {contentSection === "links" && (
             <Panel
               title="קישורים"
-              description="כפתורי ניווט וביט — השאירו קישור ריק כדי להסתיר"
+              description="טקסט וכתובת לכל כפתור - קישור ריק מסתיר את הכפתור"
             >
               <Fields
                 fieldValue={fieldValue}
                 onChange={updateField}
-                fields={[
-                  { key: "linksTitle", label: "כותרת האזור" },
-                ]}
+                fields={[{ key: "linksTitle", label: "כותרת האזור" }]}
               />
               <div className="content-link-list">
                 <LinkPair
@@ -755,55 +1294,77 @@ export function AdminDashboard() {
           {contentSection === "rsvp" && (
             <Panel
               title="אישור הגעה"
-              description="טקסטים בטופס ובקישורים האישיים"
+              description="טקסטים בטופס, התחברות והודעות סטטוס"
             >
-              <Fields
-                fieldValue={fieldValue}
-                onChange={updateField}
-                fields={[
-                  { key: "rsvpTitle", label: "כותרת האזור" },
-                  {
-                    key: "confirmPrompt",
-                    label: "הודעה לפני הטופס",
-                    multiline: true,
-                    rows: 4,
-                    hint: "מופיעה רק אחרי התחברות / קישור אישי",
-                  },
-                  {
-                    key: "rsvpLeadHome",
-                    label: "הסבר בדף הראשי",
-                    multiline: true,
-                    rows: 2,
-                  },
-                  {
-                    key: "rsvpLeadInvite",
-                    label: "הסבר בקישור אישי",
-                    multiline: true,
-                    rows: 2,
-                    hint: "אפשר להשתמש ב־{name}",
-                  },
-                  {
-                    key: "rsvpHelp",
-                    label: "טקסט עזרה",
-                    multiline: true,
-                    rows: 2,
-                  },
-                  { key: "invalidLinkTitle", label: "כותרת לקישור לא תקין" },
-                  {
-                    key: "invalidLinkBody",
-                    label: "הסבר לקישור לא תקין",
-                    multiline: true,
-                    rows: 2,
-                  },
-                ]}
-              />
+              <Accordion title="טקסטים וטופס">
+                <Fields
+                  fieldValue={fieldValue}
+                  onChange={updateField}
+                  fields={[
+                    { key: "rsvpTitle", label: "כותרת האזור" },
+                    {
+                      key: "confirmPrompt",
+                      label: "הודעה לפני הטופס",
+                      multiline: true,
+                      rows: 4,
+                    },
+                    {
+                      key: "rsvpLeadInvite",
+                      label: "הסבר בקישור אישי",
+                      multiline: true,
+                      rows: 2,
+                      hint: "אפשר להשתמש ב־{name}",
+                    },
+                    {
+                      key: "alreadyConfirmedNote",
+                      label: "הערה למי שכבר אישר",
+                      multiline: true,
+                      rows: 2,
+                    },
+                    { key: "updateStatusLabel", label: "כפתור עדכון סטטוס" },
+                    { key: "cancelUpdateLabel", label: "כפתור ביטול" },
+                    { key: "guestGreeting", label: "ברכת שלום", hint: "עם {name}" },
+                    { key: "statusLegend", label: "שאלת הגעה" },
+                    { key: "statusYesLabel", label: "אפשרות: כן" },
+                    { key: "statusNoLabel", label: "אפשרות: לא" },
+                    { key: "guestCountLabel", label: "תווית מספר אורחים" },
+                    { key: "submitRsvpLabel", label: "כפתור שליחה" },
+                    { key: "phoneLabel", label: "תווית טלפון" },
+                    { key: "sendOtpLabel", label: "כפתור שליחת קוד" },
+                    { key: "otpSentLead", label: "טקסט אחרי שליחת קוד" },
+                    { key: "codeLabel", label: "תווית קוד אימות" },
+                    { key: "verifyOtpLabel", label: "כפתור אימות" },
+                    { key: "changePhoneLabel", label: "שינוי מספר" },
+                    {
+                      key: "newGuestWelcome",
+                      label: "ברוכים הבאים לאורח חדש",
+                      multiline: true,
+                      rows: 2,
+                    },
+                    { key: "fullNameLabel", label: "תווית שם מלא" },
+                    { key: "logoutLabel", label: "התנתקות" },
+                    {
+                      key: "thankYouTitle",
+                      label: "כותרת תודה",
+                      hint: "עם {name}",
+                    },
+                    { key: "invalidLinkTitle", label: "כותרת קישור לא תקין" },
+                    {
+                      key: "invalidLinkBody",
+                      label: "הסבר קישור לא תקין",
+                      multiline: true,
+                      rows: 2,
+                    },
+                  ]}
+                />
+              </Accordion>
             </Panel>
           )}
 
           {contentSection === "thanks" && (
             <Panel
               title="הודעות תודה"
-              description="מה שמופיע אחרי שליחת האישור, לפי סוג העדכון"
+              description="מופיעות באתר אחרי אישור הגעה (הודעות WhatsApp נערכות בלשונית WhatsApp)"
             >
               <Fields
                 fieldValue={fieldValue}
@@ -814,7 +1375,6 @@ export function AdminDashboard() {
                     label: "אישור הגעה",
                     multiline: true,
                     rows: 3,
-                    hint: "כשמשאירים את מספר האורחים כמו שהיה",
                   },
                   {
                     key: "thankYouUpdated",
@@ -828,12 +1388,6 @@ export function AdminDashboard() {
                     multiline: true,
                     rows: 3,
                   },
-                  {
-                    key: "thankYouMaybe",
-                    label: "עדיין לא בטוח/ה",
-                    multiline: true,
-                    rows: 3,
-                  },
                 ]}
               />
             </Panel>
@@ -841,54 +1395,78 @@ export function AdminDashboard() {
 
           {contentSection === "whatsapp" && (
             <Panel
-              title="הודעת WhatsApp"
-              description="תבנית התזכורת שנשלחת ידנית מהניהול"
+              title="הודעות WhatsApp"
+              description="כל הטקסט ניתן לעריכה. הקישורים והפרטים הדינמיים מוחלפים אוטומטית לפי הרמזים. תזכורת נשלחת ידנית מלשונית האורחים"
             >
-              <Fields
-                fieldValue={fieldValue}
-                onChange={updateField}
-                fields={[
-                  {
-                    key: "reminderIntro",
-                    label: "פתיח",
-                    multiline: true,
-                    rows: 2,
-                  },
-                  {
-                    key: "reminderSiteLabel",
-                    label: "לפני קישור האתר",
-                    hint: "למשל: לפרטים נוספים",
-                  },
-                  {
-                    key: "reminderLinkLabel",
-                    label: "לפני קישור אישי",
-                    hint: "למשל: לעדכון סטטוס ההגעה שלכם",
-                  },
-                  {
-                    key: "reminderOutro",
-                    label: "סיום",
-                    multiline: true,
-                    rows: 3,
-                  },
-                ]}
-              />
               <div className="content-preview">
-                <p className="content-preview-label">תצוגה מקדימה</p>
-                <pre className="content-preview-body">{`שלום [שם],
-
-${content.reminderIntro}
-
-📅 ${content.dateTime}
-📍 ${content.place}
-
-${content.reminderSiteLabel}:
-https://ayelet-farewell.vercel.app
-
-${content.reminderLinkLabel}:
-https://ayelet-farewell.vercel.app/i/xxxxxxxx
-
-${content.reminderOutro}`}</pre>
+                <p className="content-preview-label">
+                  תצוגה מקדימה - תזכורת (למי שטרם עדכן סטטוס)
+                </p>
+                <pre className="content-preview-body">
+                  {content.reminderTemplate
+                    .replaceAll("{name}", "[שם]")
+                    .replaceAll("{dateTime}", content.dateTime)
+                    .replaceAll("{place}", content.place)
+                    .replaceAll(
+                      "{siteUrl}",
+                      "https://ayelet-farewell.vercel.app"
+                    )
+                    .replaceAll(
+                      "{personalLink}",
+                      "https://ayelet-farewell.vercel.app/i/xxxxxxxx"
+                    )}
+                </pre>
               </div>
+              <Accordion title="עריכת הודעות" defaultOpen>
+                <Fields
+                  fieldValue={fieldValue}
+                  onChange={updateField}
+                  fields={[
+                    {
+                      key: "reminderTemplate",
+                      label: "תזכורת — טרם נרשמו / עדכון סטטוס",
+                      multiline: true,
+                      rows: 12,
+                      hint: "{name} {dateTime} {place} · {siteUrl} {personalLink}",
+                    },
+                    {
+                      key: "otpMessageTemplate",
+                      label: "קוד אימות",
+                      multiline: true,
+                      rows: 5,
+                      hint: "חובה לכלול {code}",
+                    },
+                    {
+                      key: "waThankYouConfirmed",
+                      label: "תודה - אישור הגעה",
+                      multiline: true,
+                      rows: 6,
+                      hint: "{name}",
+                    },
+                    {
+                      key: "waThankYouUpdated",
+                      label: "תודה - עדכון מספר אורחים",
+                      multiline: true,
+                      rows: 6,
+                      hint: "{name}",
+                    },
+                    {
+                      key: "waThankYouDeclined",
+                      label: "תודה - לא מגיע/ה",
+                      multiline: true,
+                      rows: 5,
+                      hint: "{name} · בלי «מחכים לראותך»",
+                    },
+                    {
+                      key: "organizerNotifyTemplate",
+                      label: "התראה למארגנות",
+                      multiline: true,
+                      rows: 7,
+                      hint: "{name} {phone} {status} {guestCount} {notes}",
+                    },
+                  ]}
+                />
+              </Accordion>
             </Panel>
           )}
 

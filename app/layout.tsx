@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Open_Sans } from "next/font/google";
 import "./globals.css";
 
@@ -9,16 +9,22 @@ const openSans = Open_Sans({
   display: "swap",
 });
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
   ),
-  title: "מסיבת פרידה — איילת | אישור הגעה",
+  title: "מסיבת פרידה - איילת | אישור הגעה",
   description:
-    "תזכורת ואישור הגעה סופי למסיבת הפרידה של איילת · 7 בספטמבר 2026 · תחנת רוח, טבעון",
+    "תזכורת ואישור הגעה למסיבת הפרידה של איילת · 7 בספטמבר 2026 · תחנת רוח, טבעון",
   openGraph: {
-    title: "מסיבת פרידה — איילת",
-    description: "7 בספטמבר 2026 | 18:00–21:00 · תחנת רוח, טבעון",
+    title: "מסיבת פרידה - איילת",
+    description: "7 בספטמבר 2026 | 18:00-21:00 · תחנת רוח, טבעון",
     images: ["/invite.jpg"],
     locale: "he_IL",
     type: "website",

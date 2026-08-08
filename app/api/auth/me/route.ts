@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   try {
     const guest = await getRsvpByPhone(phone);
     if (!guest) {
-      // Verified phone, not yet registered — keep session for self-signup.
+      // Verified phone, not yet registered - keep session for self-signup.
       return Response.json({
         guest: {
           full_name: "",

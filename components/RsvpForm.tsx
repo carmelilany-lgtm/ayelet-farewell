@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { CONFIRM_PROMPT } from "@/lib/copy";
+import { applyTemplate, type SiteContent } from "@/lib/site-content-defaults";
 import {
   resolveThankYouKind,
   thankYouMessage,
   type ThankYouKind,
-  type ThankYouMessages,
 } from "@/lib/thank-you";
 import type { PublicInviteView, RsvpStatus } from "@/lib/types";
 
@@ -15,27 +14,12 @@ type Status = Exclude<RsvpStatus, "imported">;
 type Props = {
   token: string;
   invite: PublicInviteView;
-  lead?: string;
-  confirmPrompt?: string;
-  thankYou?: ThankYouMessages;
+  content: SiteContent;
 };
 
-const DEFAULT_THANK_YOU: ThankYouMessages = {
-  thankYouConfirmed: "תודה שאישרת את הגעתך. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.",
-  thankYouUpdated: "תודה שעדכנת אותנו — נדע להיערך יותר טוב.",
-  thankYouDeclined: "תודה על העדכון. נתראה באירוע אחר בקרוב.",
-  thankYouMaybe: "קיבלנו את העדכון. אפשר לחזור ולעדכן בכל רגע.",
-};
-
-export function RsvpForm({
-  token,
-  invite,
-  lead,
-  confirmPrompt,
-  thankYou = DEFAULT_THANK_YOU,
-}: Props) {
+export function RsvpForm({ token, invite, content }: Props) {
   const initialStatus: Status =
-    invite.status === "imported" ? "confirmed" : (invite.status as Status);
+    invite.status === "declined" ? "declined" : "confirmed";
 
   const [guestCount, setGuestCount] = useState(
     Math.max(invite.guest_count || 1, 1)
@@ -45,6 +29,7 @@ export function RsvpForm({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [doneKind, setDoneKind] = useState<ThankYouKind | null>(null);
+  const [editing, setEditing] = useState(!invite.already_final);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -84,10 +69,47 @@ export function RsvpForm({
   if (done && doneKind) {
     return (
       <div className="success-panel animate-fade-up" role="status">
-        <p className="success-title">תודה, {invite.full_name}!</p>
-        <p className="success-body">
-          {thankYouMessage(doneKind, thankYou)}
+        <p className="success-title">
+          {applyTemplate(content.thankYouTitle, { name: invite.full_name })}
         </p>
+        <p className="success-body">
+          {thankYouMessage(doneKind, content)}
+        </p>
+      </div>
+    );
+  }
+
+  if (invite.already_final && !editing) {
+    const statusText =
+      status === "declined" ? content.statusNoLabel : content.statusYesLabel;
+
+    return (
+      <div className="rsvp-form rsvp-summary animate-fade-up delay-2">
+        <p className="invitee-name">
+          {applyTemplate(content.guestGreeting, { name: invite.full_name })}
+        </p>
+        <p className="rsvp-lead">{content.alreadyConfirmedNote}</p>
+        <div className="rsvp-current">
+          <p>
+            <span className="rsvp-current-label">{content.statusLegend}</span>
+            <strong>{statusText}</strong>
+          </p>
+          {status !== "declined" && (
+            <p>
+              <span className="rsvp-current-label">
+                {content.guestCountLabel}
+              </span>
+              <strong>{guestCount}</strong>
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          className="submit-btn"
+          onClick={() => setEditing(true)}
+        >
+          {content.updateStatusLabel}
+        </button>
       </div>
     );
   }
@@ -95,28 +117,27 @@ export function RsvpForm({
   return (
     <form className="rsvp-form animate-fade-up delay-2" onSubmit={onSubmit}>
       <p className="invitee-name">
-        שלום <strong>{invite.full_name}</strong>
+        {applyTemplate(content.guestGreeting, { name: invite.full_name })}
       </p>
-      {lead && (
+      {content.rsvpLeadInvite && !invite.already_final && (
         <p className="rsvp-lead">
-          {lead.replace("{name}", invite.full_name)}
+          {applyTemplate(content.rsvpLeadInvite, { name: invite.full_name })}
         </p>
       )}
-      <p className="confirm-prompt">{confirmPrompt || CONFIRM_PROMPT}</p>
+      {!invite.already_final && (
+        <p className="confirm-prompt">{content.confirmPrompt}</p>
+      )}
       {invite.already_final && (
-        <p className="rsvp-lead">
-          כבר שלחתם אישור — אפשר לעדכן שוב אם משהו השתנה.
-        </p>
+        <p className="rsvp-lead">{content.alreadyConfirmedNote}</p>
       )}
 
       <fieldset className="status-fieldset">
-        <legend>האם תגיעו?</legend>
+        <legend>{content.statusLegend}</legend>
         <div className="status-options">
           {(
             [
-              ["confirmed", "כן, מגיע/ה"],
-              ["maybe", "עדיין לא בטוח/ה"],
-              ["declined", "לא אוכל/ה להגיע"],
+              ["confirmed", content.statusYesLabel],
+              ["declined", content.statusNoLabel],
             ] as const
           ).map(([value, label]) => (
             <label
@@ -138,7 +159,7 @@ export function RsvpForm({
 
       {status !== "declined" && (
         <div className="field">
-          <label htmlFor="guest_count">כמה תגיעו?</label>
+          <label htmlFor="guest_count">{content.guestCountLabel}</label>
           <select
             id="guest_count"
             value={guestCount}
@@ -160,8 +181,22 @@ export function RsvpForm({
       )}
 
       <button type="submit" className="submit-btn" disabled={submitting}>
-        {submitting ? "שולח…" : "שליחת אישור סופי"}
+        {submitting ? "…" : content.submitRsvpLabel}
       </button>
+      {invite.already_final && (
+        <button
+          type="button"
+          className="text-link-btn"
+          onClick={() => {
+            setStatus(initialStatus);
+            setGuestCount(Math.max(invite.guest_count || 1, 1));
+            setError(null);
+            setEditing(false);
+          }}
+        >
+          {content.cancelUpdateLabel}
+        </button>
+      )}
     </form>
   );
 }

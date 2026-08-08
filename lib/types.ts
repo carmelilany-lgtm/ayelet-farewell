@@ -13,11 +13,25 @@ export type Rsvp = {
   excitement: number | null;
   notes: string | null;
   imported_at: string | null;
+  sheet_order: number | null;
   reminder_sent_at: string | null;
   reminder_message_id: string | null;
   created_at: string;
   updated_at: string;
 };
+
+/** Admin-added guest who has not yet confirmed/declined RSVP. */
+export function isManualPendingGuest(
+  r: Pick<Rsvp, "status" | "imported_at" | "final_confirmed_at">
+): boolean {
+  return (
+    r.status === "imported" && !r.imported_at && !r.final_confirmed_at
+  );
+}
+
+export function normalizeGuestName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
 
 /** Safe fields returned to the guest who holds the invite link. */
 export type PublicInviteView = {
@@ -49,6 +63,8 @@ export type RsvpImportRow = {
   excitement: number | null;
   notes: string | null;
   imported_at: string;
+  /** 0-based order in the source Google Sheet (unique phones). */
+  sheet_order: number;
 };
 
 export type RsvpSummary = {
@@ -57,6 +73,8 @@ export type RsvpSummary = {
   declined: number;
   maybe: number;
   imported_pending: number;
+  /** Admin-added guests still waiting for first RSVP */
+  manual_pending: number;
   total_guests_attending: number;
   reminders_sent: number;
   reminders_pending: number;

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   createAdminSessionToken,
   getAdminCookieName,
@@ -6,7 +7,14 @@ import {
   verifyAdminPassword,
 } from "@/lib/admin-auth";
 import { inviteAbsoluteUrl } from "@/lib/invite-token";
-import { getSummary, listRsvps } from "@/lib/store";
+import { formatPhoneDisplay, phoneValidationError } from "@/lib/phone";
+import {
+  createImportedGuest,
+  findGuestAddConflict,
+  getSummary,
+  listRsvps,
+  updateRsvpById,
+} from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -118,6 +126,113 @@ export async function GET(request: Request) {
   } catch (err) {
     console.error("Admin list failed", err);
     return Response.json({ error: "שגיאה בטעינה" }, { status: 500 });
+  }
+}
+
+const createSchema = z.object({
+  full_name: z.string().trim().min(2).max(120),
+  phone: z.string().trim().min(9).max(20),
+});
+
+/** Manually add a guest (name + phone) who has not registered yet. */
+export async function PUT(request: Request) {
+  if (!isAuthed(request)) return unauthorized();
+
+  let json: unknown;
+  try {
+    json = await request.json();
+  } catch {
+    return Response.json({ error: "בקשה לא תקינה" }, { status: 400 });
+  }
+
+  const parsed = createSchema.safeParse(json);
+  if (!parsed.success) {
+    return Response.json({ error: "נא להזין שם ומספר טלפון תקינים" }, { status: 400 });
+  }
+
+  const phoneError = phoneValidationError(parsed.data.phone);
+  if (phoneError) {
+    return Response.json({ error: phoneError }, { status: 400 });
+  }
+
+  try {
+    const conflict = await findGuestAddConflict({
+      full_name: parsed.data.full_name,
+      phone: parsed.data.phone,
+    });
+    if (conflict) {
+      const who = conflict.existing.full_name;
+      const phoneLabel = formatPhoneDisplay(conflict.existing.phone);
+      const errors: Record<typeof conflict.code, string> = {
+        ALREADY_CONFIRMED: `${who} כבר אישר/ה הגעה (${phoneLabel}) — לא ניתן להוסיף לטרם נרשמו`,
+        ALREADY_DECLINED: `${who} כבר עודכן/ה כלא מגיע/ה (${phoneLabel})`,
+        PHONE_EXISTS: `מספר הטלפון כבר קיים אצל ${who}`,
+        NAME_ALREADY_CONFIRMED: `כבר יש אורח/ת מאושר/ת באותו שם: ${who} (${phoneLabel})`,
+      };
+      return Response.json({ error: errors[conflict.code] }, { status: 409 });
+    }
+
+    const rsvp = await createImportedGuest({
+      full_name: parsed.data.full_name,
+      phone: parsed.data.phone,
+    });
+    const summary = await getSummary();
+    return Response.json({ ok: true, rsvp, summary }, { status: 201 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (
+      message === "PHONE_EXISTS" ||
+      message === "ALREADY_CONFIRMED" ||
+      message === "ALREADY_DECLINED" ||
+      message === "NAME_ALREADY_CONFIRMED"
+    ) {
+      return Response.json(
+        { error: "האורח כבר קיים ברשימה — בדקו את רשימת האורחים" },
+        { status: 409 }
+      );
+    }
+    if (message === "INVALID_PHONE" || message === "INVALID_NAME") {
+      return Response.json({ error: "נתונים לא תקינים" }, { status: 400 });
+    }
+    console.error("Admin guest create failed", err);
+    return Response.json({ error: "שגיאה בהוספת אורח" }, { status: 500 });
+  }
+}
+
+const patchSchema = z.object({
+  id: z.string().min(8),
+  status: z.enum(["imported", "confirmed", "declined", "maybe"]),
+  guest_count: z.coerce.number().int().min(0).max(10),
+});
+
+export async function PATCH(request: Request) {
+  if (!isAuthed(request)) return unauthorized();
+
+  let json: unknown;
+  try {
+    json = await request.json();
+  } catch {
+    return Response.json({ error: "בקשה לא תקינה" }, { status: 400 });
+  }
+
+  const parsed = patchSchema.safeParse(json);
+  if (!parsed.success) {
+    return Response.json({ error: "נתונים לא תקינים" }, { status: 400 });
+  }
+
+  try {
+    const updated = await updateRsvpById(parsed.data.id, {
+      status: parsed.data.status,
+      guest_count: parsed.data.guest_count,
+    });
+    if (!updated) {
+      return Response.json({ error: "אורח לא נמצא" }, { status: 404 });
+    }
+    const summary = await getSummary();
+    return Response.json({ ok: true, rsvp: updated, summary });
+  } catch (err) {
+    console.error("Admin RSVP update failed", err);
+    return Response.json({ error: "שגיאה בעדכון" }, { status: 500 });
   }
 }
 

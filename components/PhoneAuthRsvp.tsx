@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CONFIRM_PROMPT } from "@/lib/copy";
-import { phoneValidationError, formatPhoneDisplay } from "@/lib/phone";
+import { applyTemplate, type SiteContent } from "@/lib/site-content-defaults";
+import { formatPhoneDisplay, phoneValidationError } from "@/lib/phone";
 import {
   resolveThankYouKind,
   thankYouMessage,
   type ThankYouKind,
-  type ThankYouMessages,
 } from "@/lib/thank-you";
 import type { RsvpStatus } from "@/lib/types";
 
@@ -19,9 +18,6 @@ type Guest = {
   guest_count: number;
   status: RsvpStatus;
   notes: string | null;
-  wants_video_blessing?: string | null;
-  wants_to_speak?: string | null;
-  excitement?: number | null;
   already_final: boolean;
   is_new?: boolean;
 };
@@ -29,25 +25,10 @@ type Guest = {
 type Step = "phone" | "code" | "confirm";
 
 type Props = {
-  lead?: string;
-  help?: string;
-  confirmPrompt?: string;
-  thankYou?: ThankYouMessages;
+  content: SiteContent;
 };
 
-const DEFAULT_THANK_YOU: ThankYouMessages = {
-  thankYouConfirmed: "תודה שאישרת את הגעתך. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.",
-  thankYouUpdated: "תודה שעדכנת אותנו — נדע להיערך יותר טוב.",
-  thankYouDeclined: "תודה על העדכון. נתראה באירוע אחר בקרוב.",
-  thankYouMaybe: "קיבלנו את העדכון. אפשר לחזור ולעדכן בכל רגע.",
-};
-
-export function PhoneAuthRsvp({
-  lead,
-  help,
-  confirmPrompt,
-  thankYou = DEFAULT_THANK_YOU,
-}: Props) {
+export function PhoneAuthRsvp({ content }: Props) {
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -63,14 +44,14 @@ export function PhoneAuthRsvp({
   const [doneName, setDoneName] = useState("");
   const [lastOtpPhone, setLastOtpPhone] = useState<string | null>(null);
   const [otpCooldownUntil, setOtpCooldownUntil] = useState(0);
+  const [editing, setEditing] = useState(false);
 
   function applyGuest(next: Guest) {
     setGuest(next);
     setFullName(next.full_name || "");
     setGuestCount(Math.max(next.guest_count || 1, 1));
-    setStatus(
-      next.status === "imported" ? "confirmed" : (next.status as Status)
-    );
+    setStatus(next.status === "declined" ? "declined" : "confirmed");
+    setEditing(!next.already_final);
     setStep("confirm");
   }
 
@@ -209,15 +190,17 @@ export function PhoneAuthRsvp({
   }
 
   if (loading) {
-    return <p className="rsvp-lead">טוען…</p>;
+    return <p className="rsvp-lead">{content.loadingLabel}</p>;
   }
 
   if (done && doneKind) {
     return (
       <div className="success-panel animate-fade-up" role="status">
-        <p className="success-title">תודה, {doneName}!</p>
+        <p className="success-title">
+          {applyTemplate(content.thankYouTitle, { name: doneName })}
+        </p>
         <p className="success-body">
-          {thankYouMessage(doneKind, thankYou)}
+          {thankYouMessage(doneKind, content)}
         </p>
       </div>
     );
@@ -226,9 +209,11 @@ export function PhoneAuthRsvp({
   if (step === "phone") {
     return (
       <form className="rsvp-form animate-fade-up" onSubmit={sendOtp}>
-        {lead && <p className="rsvp-lead">{lead}</p>}
+        {content.rsvpLeadHome && (
+          <p className="rsvp-lead">{content.rsvpLeadHome}</p>
+        )}
         <div className="field">
-          <label htmlFor="phone">מספר טלפון נייד</label>
+          <label htmlFor="phone">{content.phoneLabel}</label>
           <input
             id="phone"
             type="tel"
@@ -240,8 +225,7 @@ export function PhoneAuthRsvp({
             onChange={(e) => setPhone(e.target.value)}
             onBlur={() => {
               if (!phone.trim()) return;
-              const msg = phoneValidationError(phone);
-              setError(msg);
+              setError(phoneValidationError(phone));
             }}
           />
         </div>
@@ -251,9 +235,9 @@ export function PhoneAuthRsvp({
           </p>
         )}
         <button type="submit" className="submit-btn" disabled={busy}>
-          {busy ? "שולח…" : "שלחו לי קוד ב־WhatsApp"}
+          {busy ? "…" : content.sendOtpLabel}
         </button>
-        {help && <p className="rsvp-lead">{help}</p>}
+        {content.rsvpHelp && <p className="rsvp-lead">{content.rsvpHelp}</p>}
       </form>
     );
   }
@@ -262,13 +246,13 @@ export function PhoneAuthRsvp({
     return (
       <form className="rsvp-form otp-step animate-fade-up" onSubmit={verifyOtp}>
         <p className="otp-lead">
-          נשלח קוד אימות ל־WhatsApp
+          {content.otpSentLead}
           <span className="otp-phone" dir="ltr">
             {formatPhoneDisplay(phone)}
           </span>
         </p>
         <div className="field field-otp">
-          <label htmlFor="code">קוד אימות</label>
+          <label htmlFor="code">{content.codeLabel}</label>
           <input
             id="code"
             className="otp-input"
@@ -292,7 +276,7 @@ export function PhoneAuthRsvp({
         )}
         <div className="otp-actions">
           <button type="submit" className="submit-btn" disabled={busy}>
-            {busy ? "מאמת…" : "אימות והמשך"}
+            {busy ? "…" : content.verifyOtpLabel}
           </button>
           <button
             type="button"
@@ -303,7 +287,7 @@ export function PhoneAuthRsvp({
               setError(null);
             }}
           >
-            שינוי מספר
+            {content.changePhoneLabel}
           </button>
         </div>
       </form>
@@ -314,43 +298,80 @@ export function PhoneAuthRsvp({
 
   const isNew = Boolean(guest.is_new);
 
+  if (!isNew && guest.already_final && !editing) {
+    const statusText =
+      status === "declined" ? content.statusNoLabel : content.statusYesLabel;
+
+    return (
+      <div className="rsvp-form rsvp-summary animate-fade-up">
+        <p className="invitee-name">
+          {applyTemplate(content.guestGreeting, { name: guest.full_name })}
+        </p>
+        <p className="rsvp-lead">{content.alreadyConfirmedNote}</p>
+        <div className="rsvp-current">
+          <p>
+            <span className="rsvp-current-label">{content.statusLegend}</span>
+            <strong>{statusText}</strong>
+          </p>
+          {status !== "declined" && (
+            <p>
+              <span className="rsvp-current-label">
+                {content.guestCountLabel}
+              </span>
+              <strong>{guestCount}</strong>
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          className="submit-btn"
+          onClick={() => setEditing(true)}
+        >
+          {content.updateStatusLabel}
+        </button>
+        <button type="button" className="text-link-btn" onClick={logout}>
+          {content.logoutLabel}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <form className="rsvp-form animate-fade-up" onSubmit={submitRsvp}>
       {isNew ? (
         <>
-          <p className="rsvp-lead">
-            ברוכים הבאים! מלאו את הפרטים לאישור הגעה.
-          </p>
+          <p className="rsvp-lead">{content.newGuestWelcome}</p>
           <div className="field">
-            <label htmlFor="full_name">שם מלא</label>
+            <label htmlFor="full_name">{content.fullNameLabel}</label>
             <input
               id="full_name"
               required
               autoComplete="name"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              placeholder="שם פרטי ומשפחה"
+              placeholder={content.fullNamePlaceholder}
             />
           </div>
         </>
       ) : (
         <p className="invitee-name">
-          שלום <strong>{guest.full_name}</strong>
+          {applyTemplate(content.guestGreeting, { name: guest.full_name })}
         </p>
       )}
-      <p className="confirm-prompt">{confirmPrompt || CONFIRM_PROMPT}</p>
+      {!guest.already_final && (
+        <p className="confirm-prompt">{content.confirmPrompt}</p>
+      )}
       {!isNew && guest.already_final && (
-        <p className="rsvp-lead">כבר שלחתם אישור — אפשר לעדכן שוב.</p>
+        <p className="rsvp-lead">{content.alreadyConfirmedNote}</p>
       )}
 
       <fieldset className="status-fieldset">
-        <legend>האם תגיעו?</legend>
+        <legend>{content.statusLegend}</legend>
         <div className="status-options">
           {(
             [
-              ["confirmed", "כן, מגיע/ה"],
-              ["maybe", "עדיין לא בטוח/ה"],
-              ["declined", "לא אוכל/ה להגיע"],
+              ["confirmed", content.statusYesLabel],
+              ["declined", content.statusNoLabel],
             ] as const
           ).map(([value, label]) => (
             <label
@@ -372,7 +393,7 @@ export function PhoneAuthRsvp({
 
       {status !== "declined" && (
         <div className="field">
-          <label htmlFor="guest_count">כמה תגיעו?</label>
+          <label htmlFor="guest_count">{content.guestCountLabel}</label>
           <select
             id="guest_count"
             value={guestCount}
@@ -395,11 +416,26 @@ export function PhoneAuthRsvp({
       )}
 
       <button type="submit" className="submit-btn" disabled={busy}>
-        {busy ? "שולח…" : "שליחת אישור סופי"}
+        {busy ? "…" : content.submitRsvpLabel}
       </button>
-      <button type="button" className="link-btn ghost" onClick={logout}>
-        התנתקות
-      </button>
+      {!isNew && guest.already_final ? (
+        <button
+          type="button"
+          className="text-link-btn"
+          onClick={() => {
+            setStatus(guest.status === "declined" ? "declined" : "confirmed");
+            setGuestCount(Math.max(guest.guest_count || 1, 1));
+            setError(null);
+            setEditing(false);
+          }}
+        >
+          {content.cancelUpdateLabel}
+        </button>
+      ) : (
+        <button type="button" className="link-btn ghost" onClick={logout}>
+          {content.logoutLabel}
+        </button>
+      )}
     </form>
   );
 }

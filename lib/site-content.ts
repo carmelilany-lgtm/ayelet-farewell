@@ -2,7 +2,10 @@ import { promises as fs } from "fs";
 import path from "path";
 import {
   DEFAULT_SITE_CONTENT,
+  legacyReminderTemplate,
+  legacyWaThankYou,
   normalizeProgramItems,
+  sanitizeDeclinedWaTemplate,
   type SiteContent,
 } from "./site-content-defaults";
 import { getSupabaseAdmin, hasSupabaseConfig } from "./supabase";
@@ -12,12 +15,32 @@ const CONTENT_FILE = path.join(DATA_DIR, "site-content.json");
 
 function mergeContent(partial: Partial<SiteContent> | null): SiteContent {
   const base = { ...DEFAULT_SITE_CONTENT, ...(partial || {}) };
-  return {
+  const merged: SiteContent = {
     ...base,
     programItems: normalizeProgramItems(
       partial?.programItems ?? DEFAULT_SITE_CONTENT.programItems
     ),
   };
+
+  // Preserve customized split reminder fields until a full template is saved.
+  if (!partial?.reminderTemplate?.trim()) {
+    merged.reminderTemplate = legacyReminderTemplate(merged);
+  }
+  if (!partial?.waThankYouConfirmed?.trim()) {
+    merged.waThankYouConfirmed = legacyWaThankYou("confirmed", merged);
+  }
+  if (!partial?.waThankYouUpdated?.trim()) {
+    merged.waThankYouUpdated = legacyWaThankYou("updated", merged);
+  }
+  if (!partial?.waThankYouDeclined?.trim()) {
+    merged.waThankYouDeclined = legacyWaThankYou("declined", merged);
+  } else {
+    merged.waThankYouDeclined = sanitizeDeclinedWaTemplate(
+      merged.waThankYouDeclined
+    );
+  }
+
+  return merged;
 }
 
 async function readLocal(): Promise<SiteContent> {

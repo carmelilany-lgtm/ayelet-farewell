@@ -4,9 +4,14 @@ import {
   organizerNotifyPhone,
   sendWhatsAppText,
 } from "@/lib/green-api";
-import { buildOrganizerConfirmMessage } from "@/lib/reminder-message";
+import {
+  buildGuestThankYouWhatsApp,
+  buildOrganizerConfirmMessage,
+  thankYouKindForRsvpUpdate,
+} from "@/lib/reminder-message";
 import {
   getInviteByToken,
+  getRsvpByPhone,
   getRsvpByToken,
   updateRsvpByPhone,
   updateRsvpByToken,
@@ -42,18 +47,40 @@ function rateLimit(ip: string): boolean {
 }
 
 async function notifyOrganizer(rsvp: Rsvp) {
-  const result = await sendWhatsAppText(
-    organizerNotifyPhone(),
-    buildOrganizerConfirmMessage({
-      fullName: rsvp.full_name,
-      phone: rsvp.phone,
-      guestCount: rsvp.guest_count,
-      status: rsvp.status,
-      notes: rsvp.notes,
-    })
-  );
+  const message = await buildOrganizerConfirmMessage({
+    fullName: rsvp.full_name,
+    phone: rsvp.phone,
+    guestCount: rsvp.guest_count,
+    status: rsvp.status,
+    notes: rsvp.notes,
+  });
+  const result = await sendWhatsAppText(organizerNotifyPhone(), message);
   if (!result.ok) {
     console.error("Organizer notify failed", result.error);
+  }
+}
+
+async function notifyGuestThankYou(
+  rsvp: Rsvp,
+  previous: { status: Rsvp["status"]; guest_count: number } | null
+) {
+  if (rsvp.status === "imported") return;
+
+  const kind = thankYouKindForRsvpUpdate({
+    previousStatus: previous?.status ?? null,
+    previousGuestCount: previous?.guest_count ?? 0,
+    nextStatus: rsvp.status,
+    nextGuestCount: rsvp.guest_count,
+  });
+
+  const message = await buildGuestThankYouWhatsApp({
+    fullName: rsvp.full_name,
+    kind,
+  });
+
+  const result = await sendWhatsAppText(rsvp.phone, message);
+  if (!result.ok) {
+    console.error("Guest thank-you WhatsApp failed", result.error);
   }
 }
 
@@ -111,8 +138,17 @@ export async function POST(request: Request) {
 
   try {
     let full: Rsvp | null = null;
+    let previous: { status: Rsvp["status"]; guest_count: number } | null =
+      null;
 
     if (parsed.data.token) {
+      const before = await getRsvpByToken(parsed.data.token);
+      if (before) {
+        previous = {
+          status: before.status,
+          guest_count: before.guest_count,
+        };
+      }
       const invite = await updateRsvpByToken(parsed.data.token, {
         guest_count: count,
         status: parsed.data.status,
@@ -129,6 +165,13 @@ export async function POST(request: Request) {
       }
       full = await getRsvpByToken(parsed.data.token);
     } else if (sessionPhone) {
+      const before = await getRsvpByPhone(sessionPhone);
+      if (before) {
+        previous = {
+          status: before.status,
+          guest_count: before.guest_count,
+        };
+      }
       const existing = await updateRsvpByPhone(sessionPhone, {
         guest_count: count,
         status: parsed.data.status,
@@ -164,7 +207,10 @@ export async function POST(request: Request) {
     }
 
     if (full) {
-      await notifyOrganizer(full);
+      await Promise.all([
+        notifyOrganizer(full),
+        notifyGuestThankYou(full, previous),
+      ]);
     }
 
     return Response.json({

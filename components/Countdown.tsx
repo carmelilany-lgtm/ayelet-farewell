@@ -12,6 +12,14 @@ type Parts = {
   seconds: number;
 };
 
+type Props = {
+  doneLabel: string;
+  daysLabel: string;
+  hoursLabel: string;
+  minutesLabel: string;
+  secondsLabel: string;
+};
+
 function getParts(now: number): Parts | null {
   const diff = TARGET - now;
   if (diff <= 0) return null;
@@ -28,7 +36,13 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-export function Countdown() {
+export function Countdown({
+  doneLabel,
+  daysLabel,
+  hoursLabel,
+  minutesLabel,
+  secondsLabel,
+}: Props) {
   const [parts, setParts] = useState<Parts | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -46,20 +60,20 @@ export function Countdown() {
     return (
       <div className="countdown" aria-hidden="true">
         <div className="countdown-unit">
-          <span className="countdown-value">––</span>
-          <span className="countdown-label">ימים</span>
+          <span className="countdown-value">--</span>
+          <span className="countdown-label">{daysLabel}</span>
         </div>
         <div className="countdown-unit">
-          <span className="countdown-value">––</span>
-          <span className="countdown-label">שעות</span>
+          <span className="countdown-value">--</span>
+          <span className="countdown-label">{hoursLabel}</span>
         </div>
         <div className="countdown-unit">
-          <span className="countdown-value">––</span>
-          <span className="countdown-label">דקות</span>
+          <span className="countdown-value">--</span>
+          <span className="countdown-label">{minutesLabel}</span>
         </div>
         <div className="countdown-unit">
-          <span className="countdown-value">––</span>
-          <span className="countdown-label">שניות</span>
+          <span className="countdown-value">--</span>
+          <span className="countdown-label">{secondsLabel}</span>
         </div>
       </div>
     );
@@ -68,7 +82,7 @@ export function Countdown() {
   if (!parts) {
     return (
       <p className="countdown-done" role="status">
-        הערב התחיל — נתראה!
+        {doneLabel}
       </p>
     );
   }
@@ -78,23 +92,23 @@ export function Countdown() {
       className="countdown"
       role="timer"
       aria-live="polite"
-      aria-label={`נותרו ${parts.days} ימים, ${parts.hours} שעות, ${parts.minutes} דקות ו־${parts.seconds} שניות`}
+      aria-label={`${parts.days} ${daysLabel}, ${parts.hours} ${hoursLabel}, ${parts.minutes} ${minutesLabel}, ${parts.seconds} ${secondsLabel}`}
     >
       <div className="countdown-unit">
         <span className="countdown-value">{parts.days}</span>
-        <span className="countdown-label">ימים</span>
+        <span className="countdown-label">{daysLabel}</span>
       </div>
       <div className="countdown-unit">
         <span className="countdown-value">{pad(parts.hours)}</span>
-        <span className="countdown-label">שעות</span>
+        <span className="countdown-label">{hoursLabel}</span>
       </div>
       <div className="countdown-unit">
         <span className="countdown-value">{pad(parts.minutes)}</span>
-        <span className="countdown-label">דקות</span>
+        <span className="countdown-label">{minutesLabel}</span>
       </div>
       <div className="countdown-unit">
         <span className="countdown-value">{pad(parts.seconds)}</span>
-        <span className="countdown-label">שניות</span>
+        <span className="countdown-label">{secondsLabel}</span>
       </div>
     </div>
   );

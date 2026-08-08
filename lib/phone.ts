@@ -38,6 +38,26 @@ export function isValidIsraeliMobile(digits: string): boolean {
   return /^05[0-9]\d{7}$/.test(digits);
 }
 
+/** Last 9 digits — stable identity across 0 / 972 / formatting differences. */
+export function phoneIdentity(
+  input: string | number | null | undefined
+): string | null {
+  const normalized = normalizePhone(input);
+  if (normalized) return normalized.slice(-9);
+  const digits = String(input ?? "").replace(/\D/g, "");
+  if (digits.length >= 9) return digits.slice(-9);
+  return null;
+}
+
+export function phonesMatch(
+  a: string | number | null | undefined,
+  b: string | number | null | undefined
+): boolean {
+  const ia = phoneIdentity(a);
+  const ib = phoneIdentity(b);
+  return Boolean(ia && ib && ia === ib);
+}
+
 /** Client/server friendly validation message, or null if ok. */
 export function phoneValidationError(
   input: string | number | null | undefined

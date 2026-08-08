@@ -8,6 +8,7 @@ import {
 } from "@/components/Icons";
 import { InviteViewer } from "@/components/InviteViewer";
 import type { SiteContent } from "@/lib/site-content";
+import { formatProgramTimeLabel } from "@/lib/site-content-defaults";
 
 type Props = {
   content: SiteContent;
@@ -31,26 +32,37 @@ export function InvitationShell({
         <div className="hero-bg" aria-hidden="true" />
         <div className="hero-content">
           <div className="hero-ornament" aria-hidden="true" />
-          <p className="personal-banner">{content.banner}</p>
+          {content.banner.trim() ? (
+            <p className="personal-banner">{content.banner}</p>
+          ) : null}
           <h1 className="brand-title">{content.title}</h1>
           <div className="hero-details">
             <p>{content.dateTime}</p>
             <p>{content.place}</p>
           </div>
-          <Countdown />
+          <Countdown
+            doneLabel={content.countdownDone}
+            daysLabel={content.countdownDays}
+            hoursLabel={content.countdownHours}
+            minutesLabel={content.countdownMinutes}
+            secondsLabel={content.countdownSeconds}
+          />
           {!compact && (
             <div className="hero-actions">
               <a className="hero-cta" href="#rsvp">
-                אישור הגעה
+                {content.ctaLabel}
               </a>
               <div className="hero-secondary">
                 <a className="hero-text-link" href="#details">
-                  פרטי האירוע
+                  {content.detailsLinkLabel}
                 </a>
                 <span className="hero-sep" aria-hidden="true">
                   ·
                 </span>
-                <InviteViewer imageSrc={content.coverImage || "/invite.jpg"} />
+                <InviteViewer
+                  imageSrc={content.coverImage || "/invite.jpg"}
+                  label={content.viewInviteLabel}
+                />
               </div>
             </div>
           )}
@@ -67,8 +79,11 @@ export function InvitationShell({
             <ol className="program-schedule">
               {content.programItems.map((item, index) => (
                 <li key={`${item.time}-${item.title}-${index}`} className="schedule-row">
-                  <time className="schedule-time" dateTime={item.time || undefined}>
-                    {item.time || "—"}
+                  <time
+                    className="schedule-time"
+                    dateTime={item.time || undefined}
+                  >
+                    {formatProgramTimeLabel(item)}
                   </time>
                   <p className="schedule-title">{item.title}</p>
                 </li>
@@ -130,7 +145,7 @@ export function InvitationShell({
           <div
             className="program-banner"
             role="img"
-            aria-label="אווירה בתחנת רוח, טבעון"
+            aria-label={content.place}
           />
         </div>
       </section>

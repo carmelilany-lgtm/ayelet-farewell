@@ -1,7 +1,7 @@
 import { AdminDashboard } from "@/components/AdminDashboard";
 
 export const metadata = {
-  title: "ניהול | מסיבת פרידה — איילת",
+  title: "ניהול | מסיבת פרידה - איילת",
   robots: { index: false, follow: false },
 };
 

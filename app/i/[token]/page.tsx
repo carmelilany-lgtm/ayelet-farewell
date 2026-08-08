@@ -28,25 +28,12 @@ export default async function InvitePage({ params }: Props) {
               <p className="success-title">{content.invalidLinkTitle}</p>
               <p className="success-body">{content.invalidLinkBody}</p>
               <p className="gift-note">
-                אפשר גם להיכנס דרך{" "}
-                <a href="/#rsvp">התחברות עם מספר טלפון</a>.
+                {content.invalidLinkHomeHint}{" "}
+                <a href="/#rsvp">{content.phoneLabel}</a>.
               </p>
             </div>
           ) : (
-            <>
-              <InvitePageClient
-                token={token}
-                invite={invite}
-                lead={content.rsvpLeadInvite}
-                confirmPrompt={content.confirmPrompt}
-                thankYou={{
-                  thankYouConfirmed: content.thankYouConfirmed,
-                  thankYouUpdated: content.thankYouUpdated,
-                  thankYouDeclined: content.thankYouDeclined,
-                  thankYouMaybe: content.thankYouMaybe,
-                }}
-              />
-            </>
+            <InvitePageClient token={token} invite={invite} content={content} />
           )}
         </div>
       </section>

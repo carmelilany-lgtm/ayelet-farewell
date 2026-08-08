@@ -10,7 +10,7 @@ import {
   listRsvps,
   markReminderSent,
 } from "@/lib/store";
-import type { Rsvp } from "@/lib/types";
+import { isManualPendingGuest, type Rsvp } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -30,6 +30,8 @@ const bodySchema = z.object({
   id: z.string().min(1).optional(),
   /** Send to everyone who hasn't received a reminder yet (not declined). */
   pendingOnly: z.boolean().optional(),
+  /** Send only to admin-added guests still waiting for first RSVP. */
+  manualPendingOnly: z.boolean().optional(),
   /** Allow re-send even if already sent */
   force: z.boolean().optional(),
 });
@@ -48,7 +50,7 @@ async function sendOne(
       id: rsvp.id,
       full_name: rsvp.full_name,
       ok: false,
-      error: "דולג — סומן כלא מגיע",
+      error: "דולג - סומן כלא מגיע",
     };
   }
 
@@ -82,7 +84,7 @@ async function sendOne(
 }
 
 export async function POST(request: Request) {
-  // Manual admin action only — no cron / auto-send.
+  // Manual admin action only - no cron / auto-send.
   if (!isAuthed(request)) return unauthorized();
 
   if (!hasGreenApiConfig()) {
@@ -103,9 +105,14 @@ export async function POST(request: Request) {
   }
 
   const parsed = bodySchema.safeParse(json);
-  if (!parsed.success || (!parsed.data.id && !parsed.data.pendingOnly)) {
+  if (
+    !parsed.success ||
+    (!parsed.data.id &&
+      !parsed.data.pendingOnly &&
+      !parsed.data.manualPendingOnly)
+  ) {
     return Response.json(
-      { error: "נא לציין id או pendingOnly" },
+      { error: "נא לציין id, pendingOnly או manualPendingOnly" },
       { status: 400 }
     );
   }
@@ -132,7 +139,16 @@ export async function POST(request: Request) {
     const all = await listRsvps();
     const targets = all.filter((r) => {
       if (r.status === "declined") return false;
-      if (parsed.data.pendingOnly && r.reminder_sent_at && !force) return false;
+      if (parsed.data.manualPendingOnly && !isManualPendingGuest(r)) {
+        return false;
+      }
+      if (
+        (parsed.data.pendingOnly || parsed.data.manualPendingOnly) &&
+        r.reminder_sent_at &&
+        !force
+      ) {
+        return false;
+      }
       return true;
     });
 
