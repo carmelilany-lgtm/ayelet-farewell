@@ -38,8 +38,8 @@ const MENU_CLOSED_MESSAGE = "התפריט נסגר.\nלפתיחה מחדש של�
 
 const STATUS_LABEL: Record<RsvpStatus, string> = {
   imported: "ממתין לאישור",
-  confirmed: "אושר הגעה",
-  declined: "לא מגיע/ה",
+  confirmed: "אישרו הגעה",
+  declined: "לא אושרו הגעה",
   maybe: "עדיין לא יודע/ת",
 };
 
@@ -80,11 +80,11 @@ function mainPageButtons(page: number): ReplyButton[] {
     case 0:
       return [btn("sum", "סיכום"), btn("search", "חיפוש אורח"), btn("more", "עוד")];
     case 1:
-      return [btn("conf", "אושרו הגעה"), btn("pend", "ממתינים"), btn("more", "עוד")];
+      return [btn("conf", "אישרו הגעה"), btn("pend", "ממתינים"), btn("more", "עוד")];
     case 2:
       return [
         btn("maybe", "לא יודעים"),
-        btn("no", "לא מגיעים"),
+        btn("no", "לא אושרו הגעה"),
         btn("more", "עוד"),
       ];
     default:
@@ -158,10 +158,10 @@ export function renderMainMenu(page = 0, forButtons = true): string {
   return `*תפריט מארגנים*
 1 סיכום
 2 חיפוש אורח
-3 אושרו הגעה
+3 אישרו הגעה
 4 ממתינים לאישור
 5 עדיין לא יודעים
-6 לא מגיעים
+6 לא אושרו הגעה
 7 נוספו ידנית (ממתינים)
 8 איך להוסיף אורח
 ${navFooter({ onMain: true })}`;
@@ -174,11 +174,11 @@ function renderSummary(
 ): string {
   const body = `*סיכום*
 רשומות: ${summary.total_records}
-אושרו: ${summary.confirmed}
+אישרו: ${summary.confirmed}
 ממתינים: ${summary.imported_pending}
 מתוכם ידניים: ${summary.manual_pending}
 עדיין לא יודעים: ${summary.maybe}
-לא מגיעים: ${summary.declined}
+לא אושרו: ${summary.declined}
 אורחים מגיעים (ספירה): ${summary.total_guests_attending}
 תזכורות נשלחו: ${summary.reminders_sent}
 תזכורות ממתינות: ${summary.reminders_pending}`;
@@ -302,6 +302,13 @@ function formatWhen(iso: string | null | undefined): string {
   });
 }
 
+function hasSheetAnswer(value: string | number | null | undefined): boolean {
+  if (value == null) return false;
+  if (typeof value === "number") return Number.isFinite(value);
+  const t = value.trim();
+  return Boolean(t) && t !== "—" && t !== "-";
+}
+
 /** Organizer-only guest card (WhatsApp menu). Includes Google Sheet answers when present. */
 export function formatGuestFull(
   guest: Rsvp,
@@ -331,17 +338,17 @@ export function formatGuestFull(
   );
 
   const sheetLines: string[] = [];
-  if (guest.wants_video_blessing?.trim()) {
-    sheetLines.push(`ברכת וידאו: ${guest.wants_video_blessing.trim()}`);
+  if (hasSheetAnswer(guest.wants_video_blessing)) {
+    sheetLines.push(`ברכת וידאו: ${guest.wants_video_blessing!.trim()}`);
   }
-  if (guest.wants_to_speak?.trim()) {
-    sheetLines.push(`רוצה לדבר: ${guest.wants_to_speak.trim()}`);
+  if (hasSheetAnswer(guest.wants_to_speak)) {
+    sheetLines.push(`רוצה לדבר: ${guest.wants_to_speak!.trim()}`);
   }
-  if (guest.excitement != null) {
+  if (hasSheetAnswer(guest.excitement)) {
     sheetLines.push(`התרגשות: ${guest.excitement}`);
   }
-  if (guest.notes?.trim()) {
-    sheetLines.push(`הערות: ${guest.notes.trim()}`);
+  if (hasSheetAnswer(guest.notes)) {
+    sheetLines.push(`הערות: ${guest.notes!.trim()}`);
   }
 
   if (sheetLines.length > 0) {
@@ -571,11 +578,15 @@ function resolveAction(text: string, buttonId?: string | null): string {
     עוד: "more",
     "אושרו הגעה": "conf",
     אושרו: "conf",
+    "אישרו הגעה": "conf",
+    אישרו: "conf",
     ממתינים: "pend",
     "ממתינים לאישור": "pend",
     "לא יודעים": "maybe",
     "עדיין לא יודעים": "maybe",
     "לא מגיעים": "no",
+    "לא אושרו הגעה": "no",
+    "לא אושרו": "no",
     "נוספו ידנית": "manual",
     "איך להוסיף": "addhelp",
     יציאה: "exit",
