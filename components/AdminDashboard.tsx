@@ -637,7 +637,7 @@ export function AdminDashboard() {
         return;
       }
 
-      setRsvps((list) => [data.rsvp, ...list]);
+      setRsvps((list) => [...list, data.rsvp]);
       setNewGuestName("");
       setNewGuestPhone("");
       setInfo(`נוסף: ${data.rsvp.full_name}`);
