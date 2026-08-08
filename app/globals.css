@@ -1095,6 +1095,8 @@ a {
   position: relative;
   width: min(100%, 18.5rem);
   margin: 0.35rem auto 0.15rem;
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .otp-slots {
@@ -1102,6 +1104,7 @@ a {
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.4rem;
   pointer-events: none;
+  direction: ltr;
 }
 
 .otp-slot {
@@ -1117,6 +1120,8 @@ a {
   border-bottom: 1.5px solid var(--border);
   background: transparent;
   transition: border-color 0.2s ease, color 0.2s ease;
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .otp-slot.filled {
@@ -1145,6 +1150,9 @@ a {
   -webkit-text-fill-color: transparent;
   outline: none;
   box-shadow: none !important;
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
 }
 
 .otp-input-overlay:focus {

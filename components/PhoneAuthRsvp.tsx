@@ -53,14 +53,8 @@ export function PhoneAuthRsvp({ content }: Props) {
     setFullName(next.full_name || "");
     setGuestCount(Math.max(next.guest_count || 1, 1));
     setStatus(next.status === "declined" ? "declined" : "confirmed");
-    // New guests fill the form. Existing (including manual pending) start from summary.
-    if (next.is_new) {
-      setEditing(true);
-    } else if (next.pending_rsvp || next.status === "imported") {
-      setEditing(false);
-    } else {
-      setEditing(!next.already_final);
-    }
+    // Summary + "עדכון סטטוס" only after a prior confirmation.
+    setEditing(!next.already_final);
     setStep("confirm");
   }
 
@@ -261,11 +255,11 @@ export function PhoneAuthRsvp({ content }: Props) {
           {formatPhoneDisplay(phone)}
         </p>
 
-        <div className="otp-code-field">
+        <div className="otp-code-field" dir="ltr">
           <label htmlFor="code" className="sr-only">
             {content.codeLabel}
           </label>
-          <div className="otp-slots" aria-hidden="true">
+          <div className="otp-slots" aria-hidden="true" dir="ltr">
             {Array.from({ length: 6 }, (_, i) => {
               const digit = code[i] ?? "";
               const active = code.length === i;
@@ -331,31 +325,6 @@ export function PhoneAuthRsvp({ content }: Props) {
   const isNew = Boolean(guest.is_new);
   const pendingRsvp =
     Boolean(guest.pending_rsvp) || guest.status === "imported";
-
-  // Existing guest on the list who still needs to confirm status (manual add / import).
-  if (!isNew && pendingRsvp && !editing) {
-    return (
-      <div className="rsvp-form rsvp-summary animate-fade-up">
-        <p className="invitee-name">
-          {applyTemplate(content.guestGreeting, { name: guest.full_name })}
-        </p>
-        <p className="rsvp-lead">
-          {applyTemplate(content.rsvpLeadInvite, { name: guest.full_name })}
-        </p>
-        <p className="confirm-prompt">{content.confirmPrompt}</p>
-        <button
-          type="button"
-          className="submit-btn"
-          onClick={() => setEditing(true)}
-        >
-          {content.updateStatusLabel}
-        </button>
-        <button type="button" className="text-link-btn" onClick={logout}>
-          {content.logoutLabel}
-        </button>
-      </div>
-    );
-  }
 
   if (!isNew && guest.already_final && !editing) {
     const statusText =
@@ -482,7 +451,7 @@ export function PhoneAuthRsvp({ content }: Props) {
       <button type="submit" className="submit-btn" disabled={busy}>
         {busy ? "…" : content.submitRsvpLabel}
       </button>
-      {!isNew && (guest.already_final || pendingRsvp) ? (
+      {!isNew && guest.already_final ? (
         <button
           type="button"
           className="text-link-btn"
