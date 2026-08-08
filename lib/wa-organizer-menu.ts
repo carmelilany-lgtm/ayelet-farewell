@@ -154,12 +154,9 @@ export function renderMainMenu(page = 0, forButtons = true): string {
   const p = Math.max(0, Math.min(MAIN_PAGE_COUNT - 1, page));
   if (forButtons) {
     return `*תפריט מארגנים* (${p + 1}/${MAIN_PAGE_COUNT})
-מידע בלבד — אין שליחת הודעות לאורחים מכאן.
 בחרו אפשרות מהכפתורים.`;
   }
   return `*תפריט מארגנים*
-מידע בלבד — אין שליחת הודעות לאורחים מכאן.
-
 1 סיכום
 2 חיפוש אורח
 3 אושרו הגעה
@@ -393,7 +390,6 @@ async function renderScreen(
         message: renderSearchPrompt(true, backIsHome),
         textFallback: renderSearchPrompt(false, backIsHome),
         buttons: navButtons(nav),
-        footer: "הקלידו שם או טלפון",
       };
     case "add_help":
       return {
@@ -459,7 +455,6 @@ async function renderScreen(
         message: renderList(screen, byId, true, backIsHome),
         textFallback: renderList(screen, byId, false, backIsHome),
         buttons,
-        footer: useGuestButtons ? undefined : "בחרו מספר אורח",
         list,
       };
     }
