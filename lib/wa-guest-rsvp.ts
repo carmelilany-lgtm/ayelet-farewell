@@ -38,8 +38,8 @@ export const GUEST_COUNT_BUTTONS: ReplyButton[] = [
   { buttonId: "rsvp_n3", buttonText: "3" },
 ];
 
-const STATUS_BUTTON_BODY = "בחרו סטטוס הגעה:";
-const COUNT_PROMPT = "כמה אנשים מגיעים? (כולל אותך)\nבחרו 1–3.";
+const STATUS_BUTTON_BODY = "אשמח לעדכון:";
+const COUNT_PROMPT = "מעולה! כמה אנשים תגיעו? (כולל אותך) 🎉\nבחרו 1–3.";
 
 export type GuestRsvpReply = {
   handled: true;
