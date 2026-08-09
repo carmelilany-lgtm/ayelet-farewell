@@ -11,6 +11,9 @@ import {
   type SiteContent,
 } from "@/lib/site-content-defaults";
 import { ProgramScheduleEditor } from "@/components/ProgramScheduleEditor";
+import { AdminBottomNav, type AdminTab } from "@/components/admin/AdminBottomNav";
+import { AdminSheet, ConfirmSheet } from "@/components/admin/AdminSheet";
+import { useIsMobileAdmin } from "@/components/admin/useIsMobileAdmin";
 import { summarizeRsvps } from "@/lib/rsvp-summary";
 import {
   isManualPendingGuest,
@@ -27,7 +30,15 @@ const statusLabel: Record<Rsvp["status"], string> = {
   maybe: "עדיין לא יודע/ת",
 };
 
-type Tab = "guests" | "content" | "log";
+type Tab = AdminTab;
+
+type ConfirmRequest = {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  danger?: boolean;
+  resolve: (ok: boolean) => void;
+};
 type ContentSection =
   | "hero"
   | "program"
@@ -254,6 +265,25 @@ export function AdminDashboard() {
   const [logFilter, setLogFilter] = useState<"all" | "whatsapp" | "rsvp" | "admin">(
     "all"
   );
+  const isMobile = useIsMobileAdmin();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [addGuestOpen, setAddGuestOpen] = useState(false);
+  const [statsExpanded, setStatsExpanded] = useState(false);
+  const [guestSheetId, setGuestSheetId] = useState<string | null>(null);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
+
+  function askConfirm(opts: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    danger?: boolean;
+  }): Promise<boolean> {
+    return new Promise((resolve) => {
+      setConfirmReq({ ...opts, resolve });
+    });
+  }
 
   const matchesGuestSearch = useCallback(
     (r: Rsvp) => {
@@ -646,19 +676,13 @@ export function AdminDashboard() {
       setRsvps((list) => [...list, data.rsvp]);
       setNewGuestName("");
       setNewGuestPhone("");
+      setAddGuestOpen(false);
       setInfo(`נוסף: ${data.rsvp.full_name}`);
     } catch {
       setError("בעיית רשת בהוספת אורח");
     } finally {
       setAddingGuest(false);
     }
-  }
-
-  function openReminderEditor() {
-    setTab("content");
-    setContentSection("whatsapp");
-    setError(null);
-    setInfo(null);
   }
 
   async function copyLink(r: Rsvp) {
@@ -670,11 +694,13 @@ export function AdminDashboard() {
   }
 
   async function sendReminder(id: string, force = false) {
-    const ok = confirm(
-      force
+    const ok = await askConfirm({
+      title: force ? "שליחה חוזרת" : "שליחת תזכורת",
+      message: force
         ? "לשלוח שוב תזכורת WhatsApp לאורח זה?"
-        : "לשלוח תזכורת WhatsApp לאורח זה עכשיו?"
-    );
+        : "לשלוח תזכורת WhatsApp לאורח זה עכשיו?",
+      confirmLabel: force ? "שלח שוב" : "שלח",
+    });
     if (!ok) return;
 
     setError(null);
@@ -704,12 +730,13 @@ export function AdminDashboard() {
 
   async function sendAllPending() {
     const pending = summary?.reminders_pending ?? 0;
-    if (
-      !confirm(
-        `לשלוח תזכורת WhatsApp ידנית ל־${pending} אורחים?\n(לא נשלח אוטומטית - רק באישור הזה)`
-      )
-    )
-      return;
+    const ok = await askConfirm({
+      title: "שליחת תזכורות ממתינות",
+      message: `לשלוח תזכורת WhatsApp ידנית ל־${pending} אורחים?\n(לא נשלח אוטומטית — רק באישור הזה)`,
+      confirmLabel: "שלח לכולם",
+    });
+    if (!ok) return;
+    setActionsOpen(false);
     setError(null);
     setInfo(null);
     setBulkSending(true);
@@ -735,12 +762,13 @@ export function AdminDashboard() {
 
   async function sendManualPendingReminders() {
     if (manualRemindersPending < 1) return;
-    if (
-      !confirm(
-        `לשלוח תזכורת WhatsApp ל־${manualRemindersPending} אורחים מהוספה ידנית?\n(רק מי שטרם נרשם וטרם נשלחה לו תזכורת)`
-      )
-    )
-      return;
+    const ok = await askConfirm({
+      title: "תזכורת להוספה ידנית",
+      message: `לשלוח תזכורת WhatsApp ל־${manualRemindersPending} אורחים מהוספה ידנית?\n(רק מי שטרם נרשם וטרם נשלחה לו תזכורת)`,
+      confirmLabel: "שלח",
+    });
+    if (!ok) return;
+    setActionsOpen(false);
     setError(null);
     setInfo(null);
     setBulkSending(true);
@@ -767,7 +795,13 @@ export function AdminDashboard() {
   }
 
   async function resetReminder(id: string) {
-    if (!confirm("לאפס את סטטוס התזכורת לאורח זה? (כאילו לא נשלחה)")) return;
+    const ok = await askConfirm({
+      title: "איפוס תזכורת",
+      message: "לאפס את סטטוס התזכורת לאורח זה? (כאילו לא נשלחה)",
+      confirmLabel: "אפס",
+      danger: true,
+    });
+    if (!ok) return;
     setError(null);
     setInfo(null);
     setResetting(true);
@@ -793,12 +827,14 @@ export function AdminDashboard() {
 
   async function resetAllReminders() {
     const sent = summary?.reminders_sent ?? 0;
-    if (
-      !confirm(
-        `לאפס את כל ${sent} התזכורות שנשלחו?\nאפשר יהיה לשלוח שוב מההתחלה.`
-      )
-    )
-      return;
+    const ok = await askConfirm({
+      title: "איפוס כל התזכורות",
+      message: `לאפס את כל ${sent} התזכורות שנשלחו?\nאפשר יהיה לשלוח שוב מההתחלה.`,
+      confirmLabel: "אפס הכל",
+      danger: true,
+    });
+    if (!ok) return;
+    setActionsOpen(false);
     setError(null);
     setInfo(null);
     setResetting(true);
@@ -889,7 +925,107 @@ export function AdminDashboard() {
     return String(content[key] ?? "");
   }
 
+  function openReminderEditor() {
+    setActionsOpen(false);
+    setTab("content");
+    setContentSection("whatsapp");
+    setError(null);
+    setInfo(null);
+  }
+
+  function guestStatusShort(status: Rsvp["status"]) {
+    if (status === "confirmed") return "אושר";
+    if (status === "declined") return "לא מגיע/ה";
+    if (status === "maybe") return "עדיין לא יודע/ת";
+    return "ממתין";
+  }
+
+  function renderGuestCards(list: Rsvp[], emptyLabel: string) {
+    if (list.length === 0) {
+      return <p className="admin-empty admin-guest-empty">{emptyLabel}</p>;
+    }
+    return (
+      <ul className="admin-guest-cards">
+        {list.map((r) => {
+          const draft = draftFor(r);
+          const declined = draft.status === "declined";
+          const displayCount =
+            draft.status === "declined" ? 0 : draft.guest_count;
+          return (
+            <li key={r.id} className="admin-guest-card">
+              <button
+                type="button"
+                className="admin-guest-card-main"
+                onClick={() => {
+                  setGuestSheetId(r.id);
+                  startEditGuest(r);
+                }}
+              >
+                <div className="admin-guest-card-top">
+                  <span className="admin-guest-card-name">{r.full_name}</span>
+                  <span className={`pill status-${draft.status}`}>
+                    {guestStatusShort(draft.status)}
+                  </span>
+                </div>
+                <div className="admin-guest-card-meta">
+                  <span dir="ltr">{formatPhoneDisplay(r.phone)}</span>
+                  <span className="admin-guest-card-dot" aria-hidden="true">
+                    ·
+                  </span>
+                  <span>
+                    {declined ? "0 אורחים" : `${displayCount || 1} אורחים`}
+                  </span>
+                  <span className="admin-guest-card-dot" aria-hidden="true">
+                    ·
+                  </span>
+                  {r.reminder_sent_at ? (
+                    <span className="pill status-confirmed">תזכורת נשלחה</span>
+                  ) : declined ? (
+                    <span className="admin-muted-inline">בלי תזכורת</span>
+                  ) : (
+                    <span className="pill status-imported">ממתין לתזכורת</span>
+                  )}
+                </div>
+              </button>
+              <div className="admin-guest-card-actions">
+                {!declined ? (
+                  <button
+                    type="button"
+                    className="link-btn"
+                    disabled={
+                      sendingId === r.id || bulkSending || resetting
+                    }
+                    onClick={() =>
+                      void sendReminder(r.id, Boolean(r.reminder_sent_at))
+                    }
+                  >
+                    {sendingId === r.id
+                      ? "שולח…"
+                      : r.reminder_sent_at
+                        ? "שלח שוב"
+                        : "שלח"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="link-btn ghost"
+                  onClick={() => {
+                    setGuestSheetId(r.id);
+                    startEditGuest(r);
+                  }}
+                >
+                  עוד
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
   function renderGuestTable(list: Rsvp[], emptyLabel: string) {
+    if (isMobile) return renderGuestCards(list, emptyLabel);
     return (
       <div className="admin-table-wrap">
         <table className="admin-table">
@@ -1057,7 +1193,7 @@ export function AdminDashboard() {
                             draft.status === "declined"
                           }
                           onClick={() =>
-                            sendReminder(r.id, Boolean(r.reminder_sent_at))
+                            void sendReminder(r.id, Boolean(r.reminder_sent_at))
                           }
                         >
                           {sendingId === r.id
@@ -1071,7 +1207,7 @@ export function AdminDashboard() {
                             type="button"
                             className="link-btn ghost"
                             disabled={bulkSending || resetting || editing}
-                            onClick={() => resetReminder(r.id)}
+                            onClick={() => void resetReminder(r.id)}
                           >
                             איפוס
                           </button>
@@ -1118,20 +1254,123 @@ export function AdminDashboard() {
     );
   }
 
+  const guestSheetRsvp = guestSheetId
+    ? rsvps.find((r) => r.id === guestSheetId) ?? null
+    : null;
+
+  const toolbarActions = (
+    <>
+      <button
+        type="button"
+        className="admin-btn"
+        onClick={() => void sendAllPending()}
+        disabled={bulkSending || resetting || !summary.reminders_pending}
+      >
+        {bulkSending
+          ? "שולח…"
+          : `שלח תזכורות ממתינות (${summary.reminders_pending})`}
+      </button>
+      <button
+        type="button"
+        className="admin-btn ghost"
+        onClick={() => void sendManualPendingReminders()}
+        disabled={bulkSending || resetting || manualRemindersPending < 1}
+      >
+        {bulkSending
+          ? "שולח…"
+          : `שלח תזכורת להוספה ידנית (${manualRemindersPending})`}
+      </button>
+      <button
+        type="button"
+        className="admin-btn ghost"
+        onClick={() => void resetAllReminders()}
+        disabled={bulkSending || resetting || !summary.reminders_sent}
+      >
+        {resetting
+          ? "מאפס…"
+          : `איפוס כל התזכורות (${summary.reminders_sent})`}
+      </button>
+      <button
+        type="button"
+        className="admin-btn ghost"
+        onClick={openReminderEditor}
+      >
+        עריכת נוסח התזכורת
+      </button>
+      <a className="admin-btn ghost" href="/api/admin/rsvps?format=csv">
+        ייצוא CSV
+      </a>
+    </>
+  );
+
+  const addGuestForm = (
+    <form className="admin-add-guest" onSubmit={(e) => void addGuest(e)}>
+      <div className="admin-add-guest-fields">
+        <label htmlFor="new_guest_name">
+          שם מלא
+          <input
+            id="new_guest_name"
+            type="text"
+            value={newGuestName}
+            onChange={(e) => setNewGuestName(e.target.value)}
+            placeholder="שם פרטי ומשפחה"
+            autoComplete="name"
+            disabled={addingGuest}
+            required
+          />
+        </label>
+        <label htmlFor="new_guest_phone">
+          טלפון נייד
+          <input
+            id="new_guest_phone"
+            type="tel"
+            dir="ltr"
+            value={newGuestPhone}
+            onChange={(e) => setNewGuestPhone(e.target.value)}
+            placeholder="05X-XXXXXXX"
+            autoComplete="tel"
+            disabled={addingGuest}
+            required
+          />
+        </label>
+      </div>
+      <div className="admin-add-guest-actions">
+        <button
+          type="submit"
+          className="admin-btn primary"
+          disabled={addingGuest || bulkSending || resetting}
+        >
+          {addingGuest ? "מוסיף…" : "הוספה לרשימה"}
+        </button>
+      </div>
+    </form>
+  );
+
   return (
-    <div className="admin-shell">
+    <div className="admin-shell admin-shell-app">
       <header className="admin-header">
         <div>
           <p className="admin-kicker">מסיבת פרידה · איילת</p>
           <h1>ניהול</h1>
-          <p>תזכורות נשלחות רק בלחיצה ידנית</p>
+          <p className="admin-header-subtitle">תזכורות נשלחות רק בלחיצה ידנית</p>
         </div>
-        <div className="admin-actions">
+        <div className="admin-actions admin-actions-desktop">
           <a className="admin-btn ghost" href="/" target="_blank" rel="noreferrer">
             לאתר
           </a>
           <button type="button" className="admin-btn ghost" onClick={logout}>
             יציאה
+          </button>
+        </div>
+        <div className="admin-actions-mobile">
+          <button
+            type="button"
+            className="admin-icon-btn"
+            aria-label="תפריט"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen(true)}
+          >
+            ⋯
           </button>
         </div>
       </header>
@@ -1160,6 +1399,7 @@ export function AdminDashboard() {
         </button>
       </nav>
 
+      <div className="admin-main">
       {error && (tab === "guests" || tab === "log") && (
         <p className="form-error">{error}</p>
       )}
@@ -1167,7 +1407,9 @@ export function AdminDashboard() {
 
       {tab === "guests" && (
         <>
-          <div className="admin-stats">
+          <div
+            className={`admin-stats ${!statsExpanded ? "admin-stats-compact" : ""}`}
+          >
             <Stat label="סה״כ" value={summary.total_records} />
             <Stat
               label="אושרו סופית"
@@ -1202,9 +1444,22 @@ export function AdminDashboard() {
               value={summary.manual_pending ?? manualPendingTotal}
             />
             <Stat label="תזכורות נשלחו" value={summary.reminders_sent} />
-            <Stat label="תזכורות ממתינות" value={summary.reminders_pending} />
-            <Stat label="אורחים צפויים" value={summary.total_guests_attending} />
+            <Stat
+              label="תזכורות ממתינות"
+              value={summary.reminders_pending}
+            />
+            <Stat
+              label="אורחים צפויים"
+              value={summary.total_guests_attending}
+            />
           </div>
+          <button
+            type="button"
+            className="admin-stats-toggle"
+            onClick={() => setStatsExpanded((v) => !v)}
+          >
+            {statsExpanded ? "פחות סטטיסטיקות" : "עוד סטטיסטיקות"}
+          </button>
           {confirmedGuestNames.length > 0 ? (
             <p className="admin-confirmed-list">
               אושרו סופית: {confirmedGuestNames.join(" · ")}
@@ -1236,52 +1491,25 @@ export function AdminDashboard() {
             <p className="admin-confirmed-list muted">אין אורחים שאושרו סופית</p>
           )}
 
-          <div className="admin-toolbar">
+          <div className="admin-mobile-bar">
             <button
               type="button"
-              className="admin-btn"
-              onClick={sendAllPending}
-              disabled={bulkSending || resetting || !summary.reminders_pending}
+              className="admin-btn primary"
+              onClick={() => setActionsOpen(true)}
             >
-              {bulkSending
-                ? "שולח…"
-                : `שלח תזכורות ממתינות (${summary.reminders_pending})`}
+              פעולות
             </button>
             <button
               type="button"
               className="admin-btn ghost"
-              onClick={sendManualPendingReminders}
-              disabled={
-                bulkSending || resetting || manualRemindersPending < 1
-              }
+              onClick={() => setAddGuestOpen(true)}
             >
-              {bulkSending
-                ? "שולח…"
-                : `שלח תזכורת להוספה ידנית (${manualRemindersPending})`}
+              הוספת אורח
             </button>
-            <button
-              type="button"
-              className="admin-btn ghost"
-              onClick={resetAllReminders}
-              disabled={bulkSending || resetting || !summary.reminders_sent}
-            >
-              {resetting
-                ? "מאפס…"
-                : `איפוס כל התזכורות (${summary.reminders_sent})`}
-            </button>
-            <button
-              type="button"
-              className="admin-btn ghost"
-              onClick={openReminderEditor}
-            >
-              עריכת נוסח התזכורת
-            </button>
-            <a className="admin-btn ghost" href="/api/admin/rsvps?format=csv">
-              ייצוא CSV
-            </a>
           </div>
+          <div className="admin-toolbar">{toolbarActions}</div>
 
-          <div className="admin-search">
+          <div className="admin-search admin-search-sticky">
             <label htmlFor="guest_search">חיפוש לפי שם או טלפון</label>
             <input
               id="guest_search"
@@ -1315,73 +1543,33 @@ export function AdminDashboard() {
           </div>
 
           <div className="admin-guest-accordions content-accordion-list">
-            <Accordion
-              title="הוספת אורח ידנית"
-              hint="וואטסאפ או טופס"
-              defaultOpen={false}
-            >
-              <p className="admin-guest-accordion-lead">
-                הוספה דרך וואטסאפ (מארגן בלבד): שלחו למספר של המערכת (Green API)
-                שם בשורה הראשונה ומספר בשנייה — אדם אחד בכל פעם. תקבלו אישור קצר
-                שהאורח נוסף לרשימה הידנית; האורח לא מקבל הודעה.
-              </p>
-              <pre className="admin-wa-template" dir="rtl">
-                {`כרמל אילני
-0500000000`}
-              </pre>
-              <p className="admin-guest-accordion-lead">
-                לתפריט מידע (סיכום / חיפוש / רשימות) שלחו למספר המערכת:{" "}
-                <strong>עזרה</strong> — כפתורים לחיצים (או מספרים), בלי שליחת
-                הודעות לאורחים.
-              </p>
-              <p className="admin-guest-accordion-lead">
-                אפשר גם כאן בטופס — שם ומספר בלבד, למי שטרם נרשם. לא ניתן להוסיף
-                מי שכבר אישר/ה הגעה.
-              </p>
-              <form
-                className="admin-add-guest"
-                onSubmit={(e) => void addGuest(e)}
+            {!isMobile ? (
+              <Accordion
+                title="הוספת אורח ידנית"
+                hint="וואטסאפ או טופס"
+                defaultOpen={false}
               >
-                <div className="admin-add-guest-fields">
-                  <label htmlFor="new_guest_name">
-                    שם מלא
-                    <input
-                      id="new_guest_name"
-                      type="text"
-                      value={newGuestName}
-                      onChange={(e) => setNewGuestName(e.target.value)}
-                      placeholder="שם פרטי ומשפחה"
-                      autoComplete="name"
-                      disabled={addingGuest}
-                      required
-                    />
-                  </label>
-                  <label htmlFor="new_guest_phone">
-                    טלפון נייד
-                    <input
-                      id="new_guest_phone"
-                      type="tel"
-                      dir="ltr"
-                      value={newGuestPhone}
-                      onChange={(e) => setNewGuestPhone(e.target.value)}
-                      placeholder="05X-XXXXXXX"
-                      autoComplete="tel"
-                      disabled={addingGuest}
-                      required
-                    />
-                  </label>
-                </div>
-                <div className="admin-add-guest-actions">
-                  <button
-                    type="submit"
-                    className="admin-btn primary"
-                    disabled={addingGuest || bulkSending || resetting}
-                  >
-                    {addingGuest ? "מוסיף…" : "הוספה לרשימה"}
-                  </button>
-                </div>
-              </form>
-            </Accordion>
+                <p className="admin-guest-accordion-lead">
+                  הוספה דרך וואטסאפ (מארגן בלבד): שלחו למספר של המערכת (Green API)
+                  שם בשורה הראשונה ומספר בשנייה — אדם אחד בכל פעם. תקבלו אישור קצר
+                  שהאורח נוסף לרשימה הידנית; האורח לא מקבל הודעה.
+                </p>
+                <pre className="admin-wa-template" dir="rtl">
+                  {`כרמל אילני
+0500000000`}
+                </pre>
+                <p className="admin-guest-accordion-lead">
+                  לתפריט מידע (סיכום / חיפוש / רשימות) שלחו למספר המערכת:{" "}
+                  <strong>עזרה</strong> — כפתורים לחיצים (או מספרים), בלי שליחת
+                  הודעות לאורחים.
+                </p>
+                <p className="admin-guest-accordion-lead">
+                  אפשר גם כאן בטופס — שם ומספר בלבד, למי שטרם נרשם. לא ניתן להוסיף
+                  מי שכבר אישר/ה הגעה.
+                </p>
+                {addGuestForm}
+              </Accordion>
+            ) : null}
 
             <Accordion
               key={manualPendingTotal > 0 ? "manual-has" : "manual-empty"}
@@ -1395,10 +1583,12 @@ export function AdminDashboard() {
                   : null
               }
             >
-              <p className="admin-guest-accordion-lead">
-                מופיעים כאן בנפרד עד שיאשרו או יעדכנו סטטוס — ואז עוברים לרשימה
-                הכללית.
-              </p>
+              {!isMobile ? (
+                <p className="admin-guest-accordion-lead">
+                  מופיעים כאן בנפרד עד שיאשרו או יעדכנו סטטוס — ואז עוברים לרשימה
+                  הכללית.
+                </p>
+              ) : null}
               {renderGuestTable(
                 manualPendingRsvps,
                 guestSearch.trim() || statusFilter !== "all"
@@ -1418,10 +1608,12 @@ export function AdminDashboard() {
                   : null
               }
             >
-              <p className="admin-guest-accordion-lead">
-                מי שאישרו, סירבו, או יובאו מהרשימה — כולל אורחים ידניים אחרי
-                עדכון.
-              </p>
+              {!isMobile ? (
+                <p className="admin-guest-accordion-lead">
+                  מי שאישרו, סירבו, או יובאו מהרשימה — כולל אורחים ידניים אחרי
+                  עדכון.
+                </p>
+              ) : null}
               {renderGuestTable(
                 registeredRsvps,
                 guestSearch.trim() || statusFilter !== "all"
@@ -1464,9 +1656,81 @@ export function AdminDashboard() {
               {logLoading ? "טוען…" : "רענון"}
             </button>
           </div>
-          <p className="admin-log-lead">
-            כל שינוי באורחים, שליחות וואטסאפ, תזכורות ועדכוני תוכן — מהחדש לישן.
-          </p>
+          {!isMobile ? (
+            <p className="admin-log-lead">
+              כל שינוי באורחים, שליחות וואטסאפ, תזכורות ועדכוני תוכן — מהחדש לישן.
+            </p>
+          ) : null}
+          {isMobile ? (
+            <div className="admin-log-timeline">
+              {logLoading && logEvents.length === 0 ? (
+                <p className="admin-empty">טוען יומן…</p>
+              ) : filteredLogEvents.length === 0 ? (
+                <p className="admin-empty">אין עדיין רשומות ביומן</p>
+              ) : (
+                filteredLogEvents.map((event) => {
+                  const when = new Date(event.created_at);
+                  const timeLabel = Number.isNaN(when.getTime())
+                    ? event.created_at
+                    : when.toLocaleString("he-IL", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+                  const preview =
+                    typeof event.detail?.preview === "string"
+                      ? event.detail.preview
+                      : null;
+                  const purpose =
+                    typeof event.detail?.purpose === "string"
+                      ? event.detail.purpose
+                      : null;
+                  const expanded = expandedLogId === event.id;
+                  return (
+                    <button
+                      key={event.id}
+                      type="button"
+                      className={`admin-log-card ${event.ok ? "" : "fail"} ${expanded ? "expanded" : ""}`}
+                      onClick={() =>
+                        setExpandedLogId((id) =>
+                          id === event.id ? null : event.id
+                        )
+                      }
+                    >
+                      <div className="admin-log-card-top">
+                        <span className={`pill log-source-${event.source}`}>
+                          {sourceLabelHe(event.source)}
+                        </span>
+                        <time dir="ltr">{timeLabel}</time>
+                      </div>
+                      <p className="admin-log-card-action">
+                        {actionLabelHe(event.action, purpose)}
+                        {!event.ok ? " · נכשל" : ""}
+                      </p>
+                      <p className="admin-log-card-summary">{event.summary}</p>
+                      {expanded ? (
+                        <div className="admin-log-card-detail">
+                          {preview ? (
+                            <div className="admin-log-preview">{preview}</div>
+                          ) : null}
+                          <div>
+                            {event.guest_name || "—"}
+                            {event.phone ? (
+                              <span dir="ltr" className="admin-log-phone">
+                                {" "}
+                                {formatPhoneDisplay(event.phone)}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          ) : (
           <div className="admin-table-wrap">
             <table className="admin-table admin-log-table">
               <thead>
@@ -1549,6 +1813,7 @@ export function AdminDashboard() {
               </tbody>
             </table>
           </div>
+          )}
         </section>
       )}
 
@@ -1937,6 +2202,254 @@ export function AdminDashboard() {
           </div>
         </form>
       )}
+      </div>
+
+      <AdminBottomNav
+        tab={tab}
+        onChange={(next) => {
+          setTab(next);
+          setError(null);
+          setInfo(null);
+        }}
+      />
+
+      <AdminSheet
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        title="תפריט"
+      >
+        <div className="admin-sheet-stack">
+          <a
+            className="admin-btn ghost"
+            href="/"
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => setMenuOpen(false)}
+          >
+            לאתר
+          </a>
+          <button
+            type="button"
+            className="admin-btn ghost"
+            onClick={() => {
+              setMenuOpen(false);
+              void logout();
+            }}
+          >
+            יציאה
+          </button>
+        </div>
+      </AdminSheet>
+
+      <AdminSheet
+        open={actionsOpen}
+        onClose={() => setActionsOpen(false)}
+        title="פעולות אורחים"
+      >
+        <div className="admin-sheet-stack admin-toolbar-sheet">
+          {toolbarActions}
+        </div>
+      </AdminSheet>
+
+      <AdminSheet
+        open={addGuestOpen}
+        onClose={() => setAddGuestOpen(false)}
+        title="הוספת אורח"
+        size="tall"
+      >
+        <p className="admin-guest-accordion-lead">
+          שם ומספר בלבד, למי שטרם נרשם. לא ניתן להוסיף מי שכבר אישר/ה הגעה.
+        </p>
+        {addGuestForm}
+      </AdminSheet>
+
+      <AdminSheet
+        open={Boolean(guestSheetRsvp)}
+        onClose={() => {
+          if (guestSheetRsvp) cancelEditGuest(guestSheetRsvp.id);
+          setGuestSheetId(null);
+        }}
+        title={guestSheetRsvp?.full_name ?? "אורח"}
+        size="tall"
+        footer={
+          guestSheetRsvp ? (
+            <div className="admin-confirm-actions">
+              <button
+                type="button"
+                className="admin-btn ghost"
+                disabled={savingId === guestSheetRsvp.id}
+                onClick={() => {
+                  cancelEditGuest(guestSheetRsvp.id);
+                  setGuestSheetId(null);
+                }}
+              >
+                סגור
+              </button>
+              <button
+                type="button"
+                className="admin-btn primary"
+                disabled={savingId === guestSheetRsvp.id}
+                onClick={() => void saveGuestDraft(guestSheetRsvp)}
+              >
+                {savingId === guestSheetRsvp.id ? "שומר…" : "שמור"}
+              </button>
+            </div>
+          ) : null
+        }
+      >
+        {guestSheetRsvp ? (
+          <GuestSheetEditor
+            r={guestSheetRsvp}
+            draft={draftFor(guestSheetRsvp)}
+            saving={savingId === guestSheetRsvp.id}
+            sending={sendingId === guestSheetRsvp.id}
+            copied={copiedId === guestSheetRsvp.id}
+            busy={bulkSending || resetting}
+            onDraft={(patch) => setDraft(guestSheetRsvp.id, patch)}
+            onStatus={(status) =>
+              void saveGuestDraft(guestSheetRsvp, { status })
+            }
+            onSend={() =>
+              void sendReminder(
+                guestSheetRsvp.id,
+                Boolean(guestSheetRsvp.reminder_sent_at)
+              )
+            }
+            onReset={() => void resetReminder(guestSheetRsvp.id)}
+            onCopy={() => void copyLink(guestSheetRsvp)}
+          />
+        ) : null}
+      </AdminSheet>
+
+      <ConfirmSheet
+        open={Boolean(confirmReq)}
+        title={confirmReq?.title ?? ""}
+        message={confirmReq?.message ?? ""}
+        confirmLabel={confirmReq?.confirmLabel}
+        danger={confirmReq?.danger}
+        onCancel={() => {
+          confirmReq?.resolve(false);
+          setConfirmReq(null);
+        }}
+        onConfirm={() => {
+          confirmReq?.resolve(true);
+          setConfirmReq(null);
+        }}
+      />
+    </div>
+  );
+}
+
+function GuestSheetEditor({
+  r,
+  draft,
+  saving,
+  sending,
+  copied,
+  busy,
+  onDraft,
+  onStatus,
+  onSend,
+  onReset,
+  onCopy,
+}: {
+  r: Rsvp;
+  draft: { status: Rsvp["status"]; guest_count: number; full_name: string };
+  saving: boolean;
+  sending: boolean;
+  copied: boolean;
+  busy: boolean;
+  onDraft: (patch: Partial<{ status: Rsvp["status"]; guest_count: number; full_name: string }>) => void;
+  onStatus: (status: Rsvp["status"]) => void;
+  onSend: () => void;
+  onReset: () => void;
+  onCopy: () => void;
+}) {
+  const manualPending = isManualPendingGuest(r);
+  return (
+    <div className="admin-guest-sheet">
+      <label className="admin-guest-sheet-field">
+        שם מלא
+        <input
+          className="admin-inline-input"
+          type="text"
+          value={draft.full_name}
+          disabled={saving}
+          onChange={(e) => onDraft({ full_name: e.target.value })}
+        />
+      </label>
+      <p className="admin-guest-sheet-phone" dir="ltr">
+        {formatPhoneDisplay(r.phone)}
+      </p>
+      <label className="admin-guest-sheet-field">
+        סטטוס
+        <select
+          className="admin-inline-select"
+          value={draft.status}
+          disabled={saving}
+          onChange={(e) => onStatus(e.target.value as Rsvp["status"])}
+        >
+          <option value="imported">ממתין לאישור (מבטל אישור סופי)</option>
+          <option value="confirmed">אושר</option>
+          <option value="maybe">עדיין לא יודע/ת</option>
+          <option value="declined">לא מגיע/ה</option>
+        </select>
+      </label>
+      {!manualPending ? (
+        <label className="admin-guest-sheet-field">
+          מספר אורחים
+          <select
+            className="admin-inline-select"
+            value={draft.status === "declined" ? 0 : draft.guest_count}
+            disabled={draft.status === "declined" || saving}
+            onChange={(e) => onDraft({ guest_count: Number(e.target.value) })}
+          >
+            {draft.status === "declined" ? (
+              <option value={0}>0</option>
+            ) : (
+              [1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+      ) : null}
+      <div className="admin-sheet-stack">
+        <button
+          type="button"
+          className="admin-btn"
+          disabled={
+            sending || busy || saving || draft.status === "declined"
+          }
+          onClick={onSend}
+        >
+          {sending
+            ? "שולח…"
+            : r.reminder_sent_at
+              ? "שלח תזכורת שוב"
+              : "שלח תזכורת"}
+        </button>
+        {r.reminder_sent_at ? (
+          <button
+            type="button"
+            className="admin-btn ghost"
+            disabled={busy || saving}
+            onClick={onReset}
+          >
+            איפוס תזכורת
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="admin-btn ghost"
+          disabled={saving}
+          onClick={onCopy}
+        >
+          {copied ? "הועתק" : "העתק קישור הזמנה"}
+        </button>
+      </div>
     </div>
   );
 }
