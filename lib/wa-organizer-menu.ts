@@ -195,6 +195,7 @@ function renderAddHelp(forButtons = true, backIsHome = false): string {
 0500000000
 
 אדם אחד בכל פעם.
+אחרי הוספה תשאלו האם לשלוח הזמנה עכשיו.
 אם המספר כבר קיים — תקבלו שאלה האם לעדכן שם.`;
   return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
 }

@@ -77,7 +77,7 @@ export type SiteContent = {
   reminderLinkLabel: string;
   /** @deprecated */
   reminderOutro: string;
-  /** Guest thank-you WhatsApp after RSVP; use {name} */
+  /** Guest thank-you WhatsApp after RSVP; use {name} {personalLink} (declined: no link) */
   waThankYouConfirmed: string;
   waThankYouUpdated: string;
   waThankYouDeclined: string;
@@ -335,55 +335,46 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     "קוד האימות למסיבת הפרידה של איילת:\n\n{code}\n\nהקוד תקף ל־10 דקות.",
   reminderTemplate: `שלום {name},
 
-זוהי תזכורת לעדכון סטטוס הגעה לקראת מסיבת הפרידה של איילת
+זוהי תזכורת קטנה לעדכן אותנו בהגעתך לקראת מסיבת הפרידה של איילת אילני 🎉
 
 📅 {dateTime}
 📍 {place}
 
-לפרטים נוספים:
+לכל הפרטים ועדכון סטטוס:
 {siteUrl}
 
-מחכות לראותכם
-אורטל וכרמל`,
+מחכים לראותך!`,
   reminderTemplateManual: `שלום {name},
 
-מזמינים אותך למסיבת הפרידה של איילת
+מזמינים אותך לחגוג איתנו במסיבת הפרידה של איילת אילני ✨
 
 📅 {dateTime}
 📍 {place}
 
-לפרטים נוספים:
+לפרטים נוספים ואישור הגעה:
 {siteUrl}
 
-מחכות לראותכם
-אורטל וכרמל`,
+מחכים לראותך!`,
   reminderIntro:
-    "זוהי תזכורת לעדכון סטטוס הגעה לקראת מסיבת הפרידה של איילת",
-  reminderSiteLabel: "לפרטים נוספים",
-  reminderLinkLabel: "לפרטים נוספים",
-  reminderOutro: "מחכות לראותכם\nאורטל וכרמל",
-  waThankYouConfirmed: `שלום {name},
+    "זוהי תזכורת קטנה לעדכן אותנו בהגעתך לקראת מסיבת הפרידה של איילת אילני 🎉",
+  reminderSiteLabel: "לכל הפרטים ועדכון סטטוס",
+  reminderLinkLabel: "לכל הפרטים ועדכון סטטוס",
+  reminderOutro: "מחכים לראותך!",
+  waThankYouConfirmed: `איזה כיף שאת/ה בא/ה לשמוח איתנו, {name}! תודה שאישרת.
+נתראה ב־7 בספטמבר בתחנת רוח 🥂
 
-תודה שאישרת את הגעתך. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.
+לתוכנית האירוע המלאה ולכל הפרטים:
+{personalLink}`,
+  waThankYouUpdated: `תודה שעדכנת אותנו, {name} - זה עוזר לנו מאוד להיערך.
 
-מחכות לראותכם
-אורטל וכרמל`,
-  waThankYouUpdated: `שלום {name},
-
-תודה שעדכנת אותנו - נדע להיערך יותר טוב.
-
-מחכות לראותכם
-אורטל וכרמל`,
-  waThankYouDeclined: `שלום {name},
-
-תודה על העדכון. נתראה באירוע אחר בקרוב.`,
+לתוכנית האירוע ולכל הפרטים:
+{personalLink}`,
+  waThankYouDeclined: `תודה על העדכון, {name}. חבל שלא תגיע/י, אבל נמסור לאיילת את אהבתך! 🌸`,
   waThankYouMaybe: `שלום {name},
 
 קיבלנו את העדכון שלך: עדיין לא יודעים.
-כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע ועד יום 5 בספטמבר.
-
-לפרטים נוספים:
-{siteUrl}`,
+כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע בקליק אחד כאן:
+{personalLink}`,
   organizerNotifyTemplate: `עדכון אישור הגעה - מסיבת פרידה
 
 שם: {name}
@@ -463,10 +454,130 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
     next.reminderTemplateManual = DEFAULT_SITE_CONTENT.reminderTemplateManual;
   }
 
-  if (/\{personalLink\}/.test(next.waThankYouMaybe)) {
-    next.waThankYouMaybe = next.waThankYouMaybe
-      .replace(/דרך הקישור האישי שלכם:\n\{personalLink\}/g, "לפרטים נוספים:\n{siteUrl}")
-      .replace(/\{personalLink\}/g, "{siteUrl}");
+  const legacyReminders = [
+    `שלום {name},
+
+זוהי תזכורת לעדכון סטטוס הגעה לקראת מסיבת הפרידה של איילת
+
+📅 {dateTime}
+📍 {place}
+
+לפרטים נוספים:
+{siteUrl}
+
+מחכות לראותכם
+אורטל וכרמל`,
+  ];
+  if (legacyReminders.some((t) => t.trim() === next.reminderTemplate.trim())) {
+    next.reminderTemplate = DEFAULT_SITE_CONTENT.reminderTemplate;
+  }
+
+  const legacyManualInvites = [
+    `שלום {name},
+
+מזמינים אותך למסיבת הפרידה של איילת
+
+📅 {dateTime}
+📍 {place}
+
+לפרטים נוספים:
+{siteUrl}
+
+מחכות לראותכם
+אורטל וכרמל`,
+  ];
+  if (
+    legacyManualInvites.some(
+      (t) => t.trim() === (next.reminderTemplateManual || "").trim()
+    )
+  ) {
+    next.reminderTemplateManual = DEFAULT_SITE_CONTENT.reminderTemplateManual;
+  }
+
+  // Upgrade WA thank-you copy: personal link after RSVP, no signature.
+  const legacyWaThankYous = {
+    confirmed: [
+      `שלום {name},
+
+תודה שאישרת את הגעתך. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.
+
+מחכות לראותכם
+אורטל וכרמל`,
+      `איזה כיף שאת/ה בא/ה לשמוח איתנו, {name}! תודה שאישרת.
+נתראה ב־7 בספטמבר בתחנת רוח.
+
+לתוכנית האירוע המלאה ולכל הפרטים:
+{personalLink}
+
+מחכים לראותך,
+כרמל`,
+    ],
+    updated: [
+      `שלום {name},
+
+תודה שעדכנת אותנו - נדע להיערך יותר טוב.
+
+מחכות לראותכם
+אורטל וכרמל`,
+      `תודה שעדכנת אותנו, {name} - זה עוזר לנו מאוד להיערך.
+
+לתוכנית האירוע ולכל הפרטים:
+{personalLink}
+
+כרמל`,
+    ],
+    declined: [
+      `שלום {name},
+
+תודה על העדכון. נתראה באירוע אחר בקרוב.`,
+      `תודה על העדכון, {name}. חבל שלא תגיע/י, אבל אדאג למסור לאמא את אהבתך! 🌸
+
+כרמל`,
+      `תודה על העדכון, {name}. חבל שלא תגיע/י, אבל אדאג למסור לאמא את אהבתך! 🌸`,
+    ],
+    maybe: [
+      `שלום {name},
+
+קיבלנו את העדכון שלך: עדיין לא יודעים.
+כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע ועד יום 5 בספטמבר.
+
+לפרטים נוספים:
+{siteUrl}`,
+      `שלום {name},
+
+קיבלנו את העדכון שלך: עדיין לא יודעים.
+כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע ועד יום 5 בספטמבר.
+
+לפרטים נוספים:
+{personalLink}`,
+      `שלום {name},
+
+קיבלנו את העדכון שלך: עדיין לא יודעים.
+כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע ועד יום 5 בספטמבר.
+
+דרך הקישור האישי שלכם:
+{personalLink}`,
+      `שלום {name},
+
+קיבלנו את העדכון שלך: עדיין לא יודעים.
+כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע בקליק אחד כאן:
+{personalLink}
+
+כרמל`,
+    ],
+  } as const;
+
+  if (legacyWaThankYous.confirmed.some((t) => t.trim() === next.waThankYouConfirmed.trim())) {
+    next.waThankYouConfirmed = DEFAULT_SITE_CONTENT.waThankYouConfirmed;
+  }
+  if (legacyWaThankYous.updated.some((t) => t.trim() === next.waThankYouUpdated.trim())) {
+    next.waThankYouUpdated = DEFAULT_SITE_CONTENT.waThankYouUpdated;
+  }
+  if (legacyWaThankYous.declined.some((t) => t.trim() === next.waThankYouDeclined.trim())) {
+    next.waThankYouDeclined = DEFAULT_SITE_CONTENT.waThankYouDeclined;
+  }
+  if (legacyWaThankYous.maybe.some((t) => t.trim() === next.waThankYouMaybe.trim())) {
+    next.waThankYouMaybe = DEFAULT_SITE_CONTENT.waThankYouMaybe;
   }
 
   if (next.submitRsvpLabel.trim() === "שליחת אישור הגעה") {

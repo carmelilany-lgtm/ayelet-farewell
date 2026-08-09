@@ -73,6 +73,27 @@ export function buildOrganizerAddGuestSuccess(fullName: string): string {
   return `${fullName} נוסף/ה לרשימה הידנית ✅`;
 }
 
+export function buildAskSendInviteNow(fullName: string): string {
+  return `${fullName} נוסף/ה לרשימה הידנית ✅
+
+לשלוח הזמנה עכשיו?`;
+}
+
+export function buildInviteSendSkipped(fullName: string): string {
+  return `לא נשלחה הזמנה ל-${fullName}.
+אפשר לשלוח מהמערכת מאוחר יותר.`;
+}
+
+export function buildInviteSendSuccess(fullName: string): string {
+  return `ההזמנה נשלחה ל-${fullName} ✅`;
+}
+
+export function buildInviteSendFailed(reason: string): string {
+  return `לא הצלחתי לשלוח הזמנה ❌
+
+${reason}`;
+}
+
 export function buildOrganizerGuestExistsSameName(opts: {
   fullName: string;
   phone: string;

@@ -2,23 +2,30 @@ import { formatPhoneDisplay } from "@/lib/phone";
 import {
   organizerNotifyPhones,
   sendOrganizerMenuMessage,
+  sendWhatsAppReplyButtons,
   sendWhatsAppText,
 } from "@/lib/green-api";
 import {
+  buildAskSendInviteNow,
+  buildInviteSendFailed,
+  buildInviteSendSkipped,
+  buildInviteSendSuccess,
   buildOrganizerAddGuestFailure,
-  buildOrganizerAddGuestSuccess,
   buildOrganizerGuestExistsAskRename,
   buildOrganizerGuestExistsSameName,
   buildOrganizerRenameCancelled,
   buildOrganizerRenameSuccess,
+  buildReminderMessage,
 } from "@/lib/reminder-message";
 import {
   createImportedGuest,
   findGuestAddConflict,
+  getRsvpById,
+  markReminderSent,
   renameGuestByPhone,
 } from "@/lib/store";
 import { logWhatsAppOutbound } from "@/lib/system-log";
-import { normalizeGuestName } from "@/lib/types";
+import { isManualPendingGuest, normalizeGuestName } from "@/lib/types";
 import {
   fetchShortJoke,
   isJokeMoreRequest,
@@ -32,12 +39,20 @@ import {
   handleGuestRsvp,
   resolveRemindedGuestPhone,
   sendGuestRsvpReply,
+  sendReminderWithRsvpButtons,
 } from "@/lib/wa-guest-rsvp";
 import { handleOrganizerMenu } from "@/lib/wa-organizer-menu";
 import {
   looksLikeAddGuestTemplate,
   parseAddGuestMessage,
 } from "@/lib/whatsapp-add-guest";
+import {
+  clearPendingInviteSend,
+  getPendingInviteSend,
+  isInviteSendConfirm,
+  isInviteSendDecline,
+  setPendingInviteSend,
+} from "@/lib/wa-pending-invite-send";
 import {
   clearPendingRename,
   getPendingRename,
@@ -47,6 +62,11 @@ import {
 } from "@/lib/wa-pending-rename";
 
 export const runtime = "nodejs";
+
+const INVITE_SEND_BUTTONS = [
+  { buttonId: "invite_yes", buttonText: "כן" },
+  { buttonId: "invite_no", buttonText: "לא" },
+];
 
 async function replyWhatsApp(
   phone: string,
@@ -279,6 +299,94 @@ export async function POST(request: Request) {
   // Button taps are never add-guest / rename free-text.
   const fromButton = Boolean(buttonId);
 
+  // 0) After manual add: ask whether to send invite now (כן / לא).
+  if (
+    isInviteSendConfirm(text, buttonId) ||
+    isInviteSendDecline(text, buttonId)
+  ) {
+    const pendingInvite = await getPendingInviteSend(replyTo);
+    if (pendingInvite) {
+      if (isInviteSendDecline(text, buttonId)) {
+        await clearPendingInviteSend(replyTo);
+        await replyWhatsApp(
+          replyTo,
+          buildInviteSendSkipped(pendingInvite.guestName),
+          "invite_send_skipped"
+        );
+        return Response.json({
+          ok: true,
+          inviteSent: false,
+          skipped: true,
+          guestId: pendingInvite.guestId,
+        });
+      }
+
+      await clearPendingInviteSend(replyTo);
+      const guest = await getRsvpById(pendingInvite.guestId);
+      if (!guest) {
+        await replyWhatsApp(
+          replyTo,
+          buildInviteSendFailed("לא מצאתי את האורח במערכת."),
+          "invite_send_failed"
+        );
+        return Response.json({
+          ok: true,
+          inviteSent: false,
+          error: "NOT_FOUND",
+        });
+      }
+
+      if (guest.reminder_sent_at) {
+        await replyWhatsApp(
+          replyTo,
+          `כבר נשלחה הזמנה ל-${guest.full_name} בעבר.`,
+          "invite_send_already"
+        );
+        return Response.json({
+          ok: true,
+          inviteSent: false,
+          already: true,
+          guestId: guest.id,
+        });
+      }
+
+      const message = await buildReminderMessage({
+        fullName: guest.full_name,
+        inviteToken: guest.invite_token,
+        manualPending: isManualPendingGuest(guest),
+      });
+      const sent = await sendReminderWithRsvpButtons(guest.phone, message, {
+        guestName: guest.full_name,
+        rsvpId: guest.id,
+      });
+      if (!sent.ok) {
+        await replyWhatsApp(
+          replyTo,
+          buildInviteSendFailed(sent.error || "שגיאה בשליחה"),
+          "invite_send_failed"
+        );
+        return Response.json({
+          ok: true,
+          inviteSent: false,
+          error: sent.error,
+          guestId: guest.id,
+        });
+      }
+
+      await markReminderSent(guest.id, sent.idMessage);
+      await replyWhatsApp(
+        replyTo,
+        buildInviteSendSuccess(guest.full_name),
+        "invite_send_success"
+      );
+      return Response.json({
+        ok: true,
+        inviteSent: true,
+        guestId: guest.id,
+      });
+    }
+  }
+
   // 1) Pending rename yes/no (only when there is a pending ask).
   if (!fromButton && (isRenameConfirm(text) || isRenameDecline(text))) {
     const pending = await getPendingRename(replyTo);
@@ -347,6 +455,7 @@ export async function POST(request: Request) {
 
         if (sameName) {
           await clearPendingRename(replyTo);
+          await clearPendingInviteSend(replyTo);
           await replyWhatsApp(
             replyTo,
             buildOrganizerGuestExistsSameName({
@@ -356,6 +465,7 @@ export async function POST(request: Request) {
             "add_guest_exists"
           );
         } else {
+          await clearPendingInviteSend(replyTo);
           await setPendingRename({
             organizerPhone: replyTo,
             guestPhone: conflict.existing.phone,
@@ -396,15 +506,42 @@ export async function POST(request: Request) {
         });
 
         await clearPendingRename(replyTo);
-        await replyWhatsApp(
+        await setPendingInviteSend({
+          organizerPhone: replyTo,
+          guestId: guest.id,
+          guestPhone: guest.phone,
+          guestName: guest.full_name,
+        });
+
+        const ask = buildAskSendInviteNow(guest.full_name);
+        const buttonsSent = await sendWhatsAppReplyButtons(
           replyTo,
-          buildOrganizerAddGuestSuccess(guest.full_name),
-          "add_guest_success"
+          ask,
+          INVITE_SEND_BUTTONS
         );
+        void logWhatsAppOutbound({
+          phone: replyTo,
+          purpose: "ask_send_invite",
+          ok: buttonsSent.ok,
+          error: buttonsSent.ok ? undefined : buttonsSent.error,
+          message: ask,
+          actor: "whatsapp",
+          messageId: buttonsSent.ok ? buttonsSent.idMessage : null,
+          guestName: guest.full_name,
+          rsvpId: guest.id,
+        });
+        if (!buttonsSent.ok) {
+          await replyWhatsApp(
+            replyTo,
+            `${ask}\n\nהשיבו: כן\nאו: לא`,
+            "ask_send_invite"
+          );
+        }
 
         return Response.json({
           ok: true,
           added: true,
+          askSendInvite: true,
           guest: {
             id: guest.id,
             phone: guest.phone,

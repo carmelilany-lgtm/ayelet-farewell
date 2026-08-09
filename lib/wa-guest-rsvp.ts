@@ -125,10 +125,10 @@ async function buildThankYou(
     nextStatus: rsvp.status as Exclude<RsvpStatus, "imported">,
     nextGuestCount: rsvp.guest_count,
   });
-  // No personal invite link — RSVP already done on WhatsApp.
   return buildGuestThankYouWhatsApp({
     fullName: rsvp.full_name,
     kind,
+    inviteToken: rsvp.invite_token,
   });
 }
 
