@@ -6,6 +6,7 @@ import { formatPhoneDisplay, normalizePhone, phonesMatch } from "@/lib/phone";
 import {
   DEFAULT_SITE_CONTENT,
   formatProgramLines,
+  migrateStoredSiteContent,
   parseProgramLine,
   type SiteContent,
 } from "@/lib/site-content-defaults";
@@ -40,7 +41,7 @@ const CONTENT_SECTIONS: { id: ContentSection; label: string }[] = [
   { id: "program", label: "תוכנית" },
   { id: "links", label: "קישורים" },
   { id: "rsvp", label: "אישור הגעה" },
-  { id: "thanks", label: "הודעות תודה" },
+  { id: "thanks", label: "תודה באתר" },
   { id: "whatsapp", label: "WhatsApp" },
 ];
 
@@ -372,7 +373,12 @@ export function AdminDashboard() {
 
     if (contentRes.ok) {
       const contentData = await contentRes.json();
-      setContent({ ...DEFAULT_SITE_CONTENT, ...contentData.content });
+      setContent(
+        migrateStoredSiteContent({
+          ...DEFAULT_SITE_CONTENT,
+          ...contentData.content,
+        })
+      );
       setDirty(false);
     }
 
@@ -832,7 +838,12 @@ export function AdminDashboard() {
         setError(data.error || "שגיאה בשמירת תוכן");
         return;
       }
-      setContent({ ...DEFAULT_SITE_CONTENT, ...data.content });
+      setContent(
+        migrateStoredSiteContent({
+          ...DEFAULT_SITE_CONTENT,
+          ...data.content,
+        })
+      );
       setDirty(false);
       setInfo("הטקסטים נשמרו ויעודכנו באתר");
     } catch {
@@ -1726,8 +1737,8 @@ export function AdminDashboard() {
 
           {contentSection === "thanks" && (
             <Panel
-              title="הודעות תודה"
-              description="מופיעות באתר אחרי אישור הגעה (הודעות WhatsApp נערכות בלשונית WhatsApp)"
+              title="הודעות תודה באתר"
+              description="רק מסך ההצלחה באתר. הודעות WhatsApp (כולל קישור אישי) — בלשונית WhatsApp."
             >
               <Fields
                 fieldValue={fieldValue}
@@ -1735,25 +1746,25 @@ export function AdminDashboard() {
                 fields={[
                   {
                     key: "thankYouConfirmed",
-                    label: "אישור הגעה",
+                    label: "אישור הגעה (אתר)",
                     multiline: true,
                     rows: 3,
                   },
                   {
                     key: "thankYouUpdated",
-                    label: "שינוי מספר אורחים",
+                    label: "עדכון (אתר)",
                     multiline: true,
                     rows: 3,
                   },
                   {
                     key: "thankYouDeclined",
-                    label: "לא יכול/ה להגיע",
+                    label: "לא מגיע/ה (אתר)",
                     multiline: true,
                     rows: 3,
                   },
                   {
                     key: "thankYouMaybe",
-                    label: "עדיין לא יודע/ת",
+                    label: "עדיין לא יודע/ת (אתר)",
                     multiline: true,
                     rows: 3,
                   },
@@ -1765,7 +1776,7 @@ export function AdminDashboard() {
           {contentSection === "whatsapp" && (
             <Panel
               title="הודעות WhatsApp"
-              description="ערכים ישנים ב־CMS מתעדכנים אוטומטית בקריאה רק לשדות מוגדרים. שמרו אחרי עריכה."
+              description="תזכורת, הזמנה, כפתורי RSVP והודעות תודה בוואטסאפ. רעננו את הדף אחרי עדכון — ואז שמרו אם ערכתם."
             >
               <div className="content-preview">
                 <p className="content-preview-label">
@@ -1835,6 +1846,20 @@ export function AdminDashboard() {
                       hint: "{name} {dateTime} {place} · {siteUrl}",
                     },
                     {
+                      key: "waRsvpStatusPrompt",
+                      label: "גוף מעל כפתורי RSVP (אחרי הזמנה/תזכורת)",
+                      multiline: true,
+                      rows: 2,
+                      hint: 'למשל: אשמח לעדכון:',
+                    },
+                    {
+                      key: "waRsvpCountPrompt",
+                      label: "שאלה על מספר אורחים",
+                      multiline: true,
+                      rows: 3,
+                      hint: "אחרי בחירת מגיע/ה או עדיין לא יודע/ת",
+                    },
+                    {
                       key: "otpMessageTemplate",
                       label: "קוד אימות",
                       multiline: true,
@@ -1843,28 +1868,28 @@ export function AdminDashboard() {
                     },
                     {
                       key: "waThankYouConfirmed",
-                      label: "תודה - אישור הגעה",
+                      label: "תודה WhatsApp - אישור הגעה",
                       multiline: true,
                       rows: 8,
                       hint: "{name} · {personalLink}",
                     },
                     {
                       key: "waThankYouUpdated",
-                      label: "תודה - עדכון מספר אורחים",
+                      label: "תודה WhatsApp - עדכון",
                       multiline: true,
                       rows: 7,
                       hint: "{name} · {personalLink}",
                     },
                     {
                       key: "waThankYouDeclined",
-                      label: "תודה - לא מגיע/ה",
+                      label: "תודה WhatsApp - לא מגיע/ה",
                       multiline: true,
                       rows: 5,
                       hint: "{name} · בלי קישור אישי",
                     },
                     {
                       key: "waThankYouMaybe",
-                      label: "תודה - עדיין לא יודע/ת",
+                      label: "תודה WhatsApp - עדיין לא יודע/ת",
                       multiline: true,
                       rows: 7,
                       hint: "{name} · {personalLink}",

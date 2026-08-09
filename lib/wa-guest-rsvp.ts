@@ -11,6 +11,8 @@ import {
   buildOrganizerConfirmMessage,
   thankYouKindForRsvpUpdate,
 } from "./reminder-message";
+import { getSiteContent } from "./site-content";
+import { DEFAULT_SITE_CONTENT } from "./site-content-defaults";
 import { getRsvpByPhone, updateRsvpByPhone } from "./store";
 import { logWhatsAppOutbound } from "./system-log";
 import { isUnchangedRsvp } from "./thank-you";
@@ -38,8 +40,20 @@ export const GUEST_COUNT_BUTTONS: ReplyButton[] = [
   { buttonId: "rsvp_n3", buttonText: "3" },
 ];
 
-const STATUS_BUTTON_BODY = "אשמח לעדכון:";
-const COUNT_PROMPT = "מעולה! כמה אנשים תגיעו? (כולל אותך) 🎉\nבחרו 1–3.";
+async function guestRsvpPrompts(): Promise<{
+  statusBody: string;
+  countPrompt: string;
+}> {
+  const content = await getSiteContent();
+  return {
+    statusBody:
+      content.waRsvpStatusPrompt?.trim() ||
+      DEFAULT_SITE_CONTENT.waRsvpStatusPrompt,
+    countPrompt:
+      content.waRsvpCountPrompt?.trim() ||
+      DEFAULT_SITE_CONTENT.waRsvpCountPrompt,
+  };
+}
 
 export type GuestRsvpReply = {
   handled: true;
@@ -184,10 +198,11 @@ async function saveRsvp(opts: {
   return { rsvp: updated, unchanged: false, thankYou };
 }
 
-function countAskReply(): GuestRsvpReply {
+async function countAskReply(): Promise<GuestRsvpReply> {
+  const { countPrompt } = await guestRsvpPrompts();
   return {
     handled: true,
-    message: COUNT_PROMPT,
+    message: countPrompt,
     buttons: GUEST_COUNT_BUTTONS,
   };
 }
@@ -229,6 +244,7 @@ export async function handleGuestRsvp(opts: {
   const pending = await getGuestRsvpSession(phone);
   const statusChoice = parseStatusChoice(opts.text, opts.buttonId);
   const countChoice = parseGuestCount(opts.text, opts.buttonId);
+  const { countPrompt } = await guestRsvpPrompts();
 
   // Waiting for guest count.
   if (pending) {
@@ -265,7 +281,7 @@ export async function handleGuestRsvp(opts: {
 
     return {
       handled: true,
-      message: `לא הבנתי את המספר.\n${COUNT_PROMPT}`,
+      message: `לא הבנתי את המספר.\n${countPrompt}`,
       buttons: GUEST_COUNT_BUTTONS,
     };
   }
@@ -299,6 +315,7 @@ export async function sendReminderWithRsvpButtons(
 ): Promise<{ ok: true; idMessage: string } | { ok: false; error: string }> {
   const chatId = await resolveWhatsAppChatId(phone);
   await rememberWaChatId(phone, chatId);
+  const { statusBody } = await guestRsvpPrompts();
 
   const textFallback = `${message}
 
@@ -317,7 +334,7 @@ export async function sendReminderWithRsvpButtons(
   await sleep(450);
   const buttonSent = await sendWhatsAppReplyButtons(
     phone,
-    STATUS_BUTTON_BODY,
+    statusBody,
     GUEST_RSVP_BUTTONS,
     undefined,
     chatId
@@ -328,7 +345,7 @@ export async function sendReminderWithRsvpButtons(
     purpose: "reminder_buttons",
     ok: buttonSent.ok,
     error: buttonSent.ok ? undefined : buttonSent.error,
-    message: STATUS_BUTTON_BODY,
+    message: statusBody,
     actor: "admin",
     messageId: buttonSent.ok ? buttonSent.idMessage : null,
     guestName: meta?.guestName,

@@ -82,6 +82,10 @@ export type SiteContent = {
   waThankYouUpdated: string;
   waThankYouDeclined: string;
   waThankYouMaybe: string;
+  /** Body above RSVP status reply-buttons (after invite/reminder). */
+  waRsvpStatusPrompt: string;
+  /** Ask how many guests after yes/maybe. */
+  waRsvpCountPrompt: string;
   /** Organizer alert on RSVP; use {name} {phone} {status} {guestCount} {notes} */
   organizerNotifyTemplate: string;
   mapsUrl: string;
@@ -290,11 +294,13 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   rsvpLeadInvite: "",
   confirmPrompt:
     "מצפה בשמחה לבואך למסיבה שלי. כדי להיות ערוכה על הצד הטוב ביותר (קייטרינג, יין די. ג׳יי ועוד) בבקשה אשר/י את הגעתך 🙏🏽♥️💐",
-  thankYouConfirmed: "תודה שאישרת את הגעתך. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.",
-  thankYouUpdated: "תודה שעדכנת אותנו - נדע להיערך יותר טוב.",
-  thankYouDeclined: "תודה על העדכון. נתראה באירוע אחר בקרוב.",
+  thankYouConfirmed:
+    "איזה כיף שאת/ה בא/ה לשמוח איתנו! תודה שאישרת. נתראה ב־7 בספטמבר בתחנת רוח 🥂",
+  thankYouUpdated: "תודה שעדכנת אותנו - זה עוזר לנו מאוד להיערך.",
+  thankYouDeclined:
+    "תודה על העדכון. חבל שלא תגיע/י, אבל נמסור לאיילת את אהבתך! 🌸",
   thankYouMaybe:
-    "קיבלנו את העדכון. כשתדעו — אפשר לחזור בכל רגע ולעדכן את סטטוס ההגעה.",
+    "קיבלנו את העדכון שלך: עדיין לא יודעים. כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע.",
   thankYouTitle: "תודה, {name}!",
   invalidLinkTitle: "הקישור לא תקין",
   invalidLinkBody:
@@ -375,6 +381,9 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
 קיבלנו את העדכון שלך: עדיין לא יודעים.
 כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע בקליק אחד כאן:
 {personalLink}`,
+  waRsvpStatusPrompt: "אשמח לעדכון:",
+  waRsvpCountPrompt:
+    "מעולה! כמה אנשים תגיעו? (כולל אותך) 🎉\nבחרו 1–3.",
   organizerNotifyTemplate: `עדכון אישור הגעה - מסיבת פרידה
 
 שם: {name}
@@ -578,6 +587,58 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
   }
   if (legacyWaThankYous.maybe.some((t) => t.trim() === next.waThankYouMaybe.trim())) {
     next.waThankYouMaybe = DEFAULT_SITE_CONTENT.waThankYouMaybe;
+  }
+
+  if (!next.waRsvpStatusPrompt?.trim()) {
+    next.waRsvpStatusPrompt = DEFAULT_SITE_CONTENT.waRsvpStatusPrompt;
+  } else if (
+    ["בחרו סטטוס הגעה:", "בחרו סטטוס הגעה"].includes(
+      next.waRsvpStatusPrompt.trim()
+    )
+  ) {
+    next.waRsvpStatusPrompt = DEFAULT_SITE_CONTENT.waRsvpStatusPrompt;
+  }
+
+  if (!next.waRsvpCountPrompt?.trim()) {
+    next.waRsvpCountPrompt = DEFAULT_SITE_CONTENT.waRsvpCountPrompt;
+  } else if (
+    [
+      "כמה אנשים מגיעים? (כולל אותך)\nבחרו 1–3.",
+      "כמה אנשים מגיעים? (כולל אותך)",
+    ].includes(next.waRsvpCountPrompt.trim())
+  ) {
+    next.waRsvpCountPrompt = DEFAULT_SITE_CONTENT.waRsvpCountPrompt;
+  }
+
+  // Site thank-you panel (admin → הודעות תודה)
+  const legacySiteThanks = {
+    confirmed: [
+      "תודה שאישרת את הגעתך. נתראה ב־7 בספטמבר בתחנת רוח, טבעון.",
+    ],
+    updated: [
+      "תודה שעדכנת אותנו - נדע להיערך יותר טוב.",
+      "תודה שעדכנת אותנו, כך נדע להיערך הכי טוב. להתראות באירוע.",
+    ],
+    declined: [
+      "תודה על העדכון. נתראה באירוע אחר בקרוב.",
+      "תודה על העדכון. מקווים שניפגש בשמחות אחרות בעתיד.",
+    ],
+    maybe: [
+      "קיבלנו את העדכון. כשתדעו — אפשר לחזור בכל רגע ולעדכן את סטטוס ההגעה.",
+      "קיבלנו את העדכון. אפשר לחזור ולעדכן בכל רגע.",
+    ],
+  } as const;
+  if (legacySiteThanks.confirmed.some((t) => t === next.thankYouConfirmed.trim())) {
+    next.thankYouConfirmed = DEFAULT_SITE_CONTENT.thankYouConfirmed;
+  }
+  if (legacySiteThanks.updated.some((t) => t === next.thankYouUpdated.trim())) {
+    next.thankYouUpdated = DEFAULT_SITE_CONTENT.thankYouUpdated;
+  }
+  if (legacySiteThanks.declined.some((t) => t === next.thankYouDeclined.trim())) {
+    next.thankYouDeclined = DEFAULT_SITE_CONTENT.thankYouDeclined;
+  }
+  if (legacySiteThanks.maybe.some((t) => t === next.thankYouMaybe.trim())) {
+    next.thankYouMaybe = DEFAULT_SITE_CONTENT.thankYouMaybe;
   }
 
   if (next.submitRsvpLabel.trim() === "שליחת אישור הגעה") {
