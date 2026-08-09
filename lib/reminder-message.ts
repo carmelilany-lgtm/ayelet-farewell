@@ -14,6 +14,12 @@ import type { RsvpStatus } from "./types";
 
 export { CONFIRM_PROMPT } from "./copy";
 
+/** First name only for guest WhatsApp greetings ({name}). */
+export function whatsappFirstName(fullName: string): string {
+  const first = fullName.trim().split(/\s+/)[0] || "";
+  return first || fullName.trim();
+}
+
 function statusLabelForOrganizer(status: string): string {
   if (status === "confirmed") return "מגיע/ה ✅";
   if (status === "declined") return "לא מגיע/ה ❌";
@@ -55,7 +61,7 @@ export async function buildReminderMessage(opts: {
     : content.reminderTemplate;
 
   return applyTemplate(template, {
-    name: opts.fullName,
+    name: whatsappFirstName(opts.fullName),
     dateTime: content.dateTime,
     place: content.place,
     siteUrl,
@@ -123,7 +129,7 @@ export async function buildGuestThankYouWhatsApp(opts: {
     : siteUrl;
 
   return applyTemplate(waThankYouTemplate(content, opts.kind), {
-    name: opts.fullName,
+    name: whatsappFirstName(opts.fullName),
     personalLink,
     siteUrl,
   });

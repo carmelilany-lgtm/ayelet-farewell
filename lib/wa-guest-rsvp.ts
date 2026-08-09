@@ -24,7 +24,7 @@ import {
 } from "./wa-guest-rsvp-session";
 import { phoneFromWhatsAppId } from "./whatsapp-add-guest";
 
-const MAX_GUESTS = 10;
+const MAX_GUESTS = 3;
 
 export const GUEST_RSVP_BUTTONS: ReplyButton[] = [
   { buttonId: "rsvp_yes", buttonText: "מגיע/ה" },
@@ -39,8 +39,7 @@ export const GUEST_COUNT_BUTTONS: ReplyButton[] = [
 ];
 
 const STATUS_BUTTON_BODY = "בחרו סטטוס הגעה:";
-const COUNT_PROMPT =
-  "כמה אנשים מגיעים? (כולל אותך)\nבחרו 1–3 או שלחו מספר עד 10.";
+const COUNT_PROMPT = "כמה אנשים מגיעים? (כולל אותך)\nבחרו 1–3.";
 
 export type GuestRsvpReply = {
   handled: true;
@@ -377,7 +376,7 @@ export async function sendGuestRsvpReply(
     if (!sent.ok) {
       await sendWhatsAppTextWithRetry(
         phone,
-        `${reply.message}\n\nהשיבו מספר בין 1 ל־${MAX_GUESTS}.`,
+        `${reply.message}\n\nבחרו 1, 2 או 3.`,
         2,
         {
           purpose: "guest_rsvp_prompt",
