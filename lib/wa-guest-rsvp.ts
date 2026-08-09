@@ -169,15 +169,17 @@ async function saveRsvp(opts: {
   });
   if (!updated) return null;
 
+  // Await organizers first (same as /api/rsvp). Fire-and-forget is dropped
+  // on Vercel when the webhook response returns.
+  const organizerResult = await notifyOrganizer(updated);
+  if (organizerResult.sent === 0) {
+    console.error("Guest WA RSVP organizer notify failed", organizerResult.failed);
+  }
+  await sleep(500);
+
   const thankYou = await buildThankYou(updated, {
     status: before.status,
     guest_count: before.guest_count,
-  });
-
-  void notifyOrganizer(updated).then((result) => {
-    if (result.sent === 0) {
-      console.error("Guest WA RSVP organizer notify failed", result.failed);
-    }
   });
 
   return { rsvp: updated, unchanged: false, thankYou };
