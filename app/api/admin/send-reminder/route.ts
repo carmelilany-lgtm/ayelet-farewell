@@ -3,7 +3,7 @@ import {
   isValidAdminToken,
   parseBearerOrCookie,
 } from "@/lib/admin-auth";
-import { hasGreenApiConfig, sendWhatsAppTextWithRetry } from "@/lib/green-api";
+import { hasGreenApiConfig } from "@/lib/green-api";
 import { buildReminderMessage } from "@/lib/reminder-message";
 import {
   getRsvpById,
@@ -11,6 +11,7 @@ import {
   markReminderSent,
 } from "@/lib/store";
 import { isManualPendingGuest, type Rsvp } from "@/lib/types";
+import { sendReminderWithRsvpButtons } from "@/lib/wa-guest-rsvp";
 
 export const runtime = "nodejs";
 
@@ -70,11 +71,9 @@ async function sendOne(
     manualPending: isManualPendingGuest(rsvp),
   });
 
-  const result = await sendWhatsAppTextWithRetry(rsvp.phone, message, 3, {
-    purpose: "reminder",
+  const result = await sendReminderWithRsvpButtons(rsvp.phone, message, {
     guestName: rsvp.full_name,
     rsvpId: rsvp.id,
-    actor: "admin",
   });
   if (!result.ok) {
     return {

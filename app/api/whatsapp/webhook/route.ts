@@ -28,6 +28,11 @@ import {
   resolveAllowlistedPhone,
 } from "@/lib/wa-joke";
 import { hasJokeSession, markJokeSession } from "@/lib/wa-joke-session";
+import {
+  handleGuestRsvp,
+  resolveRemindedGuestPhone,
+  sendGuestRsvpReply,
+} from "@/lib/wa-guest-rsvp";
 import { handleOrganizerMenu } from "@/lib/wa-organizer-menu";
 import {
   looksLikeAddGuestTemplate,
@@ -176,6 +181,7 @@ function webhookAuthorized(request: Request): boolean {
 /**
  * Green API incoming webhook:
  * - Organizers: add guest, rename, info menus, jokes
+ * - Guests who received a reminder: RSVP buttons / guest count
  * - Joke-authorized phones (JOKE_AUTHORIZED_PHONES): jokes only
  */
 export async function POST(request: Request) {
@@ -212,34 +218,57 @@ export async function POST(request: Request) {
   const jokePhone =
     organizerPhone ||
     (await resolveAllowlistedPhone(senderChatId, jokePhones));
+  const guestPhone = organizerPhone
+    ? null
+    : await resolveRemindedGuestPhone(senderChatId);
 
-  if (!jokePhone) {
+  if (!jokePhone && !guestPhone) {
     return Response.json({ ok: true, ignored: "not_authorized" });
   }
 
   const isOrganizer = Boolean(organizerPhone);
-  const replyTo = jokePhone;
+  const replyTo = jokePhone || guestPhone!;
 
   // Jokes: wake only on "בדיחה". "עוד" only after at least one joke was sent.
-  const wantsPrimary = isJokePrimaryRequest(text, buttonId);
-  const wantsMore =
-    !wantsPrimary &&
-    isJokeMoreRequest(text, buttonId, { allowMoreText: !isOrganizer }) &&
-    (await hasJokeSession(replyTo));
+  if (jokePhone) {
+    const wantsPrimary = isJokePrimaryRequest(text, buttonId);
+    const wantsMore =
+      !wantsPrimary &&
+      isJokeMoreRequest(text, buttonId, { allowMoreText: !isOrganizer }) &&
+      (await hasJokeSession(jokePhone));
 
-  if (wantsPrimary || wantsMore) {
-    const joke = await fetchShortJoke();
-    await sendOrganizerMenuMessage(replyTo, {
-      body: joke,
-      buttons: [JOKE_MORE_BUTTON],
+    if (wantsPrimary || wantsMore) {
+      const joke = await fetchShortJoke();
+      await sendOrganizerMenuMessage(jokePhone, {
+        body: joke,
+        buttons: [JOKE_MORE_BUTTON],
+      });
+      await markJokeSession(jokePhone);
+      return Response.json({
+        ok: true,
+        joke: true,
+        more: wantsMore,
+        organizer: isOrganizer,
+      });
+    }
+  }
+
+  // Reminded guests (non-organizers): RSVP via WhatsApp buttons / text.
+  if (guestPhone && !isOrganizer) {
+    const guestReply = await handleGuestRsvp({
+      phone: guestPhone,
+      text,
+      buttonId,
     });
-    await markJokeSession(replyTo);
-    return Response.json({
-      ok: true,
-      joke: true,
-      more: wantsMore,
-      organizer: isOrganizer,
-    });
+    if (guestReply) {
+      await sendGuestRsvpReply(guestPhone, guestReply);
+      return Response.json({
+        ok: true,
+        guestRsvp: true,
+        askedCount: Boolean(guestReply.buttons?.length),
+      });
+    }
+    return Response.json({ ok: true, ignored: "guest_unhandled" });
   }
 
   // Joke-only numbers: silent ignore unless they wrote בדיחה / valid עוד.
@@ -440,5 +469,6 @@ export async function GET() {
     template: "שם\\nטלפון",
     menu: "עזרה",
     joke: "בדיחה",
+    guestRsvp: "מגיע/ה | לא מגיע/ה | עדיין לא יודע/ת",
   });
 }

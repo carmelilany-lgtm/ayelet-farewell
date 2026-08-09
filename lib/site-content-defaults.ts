@@ -209,7 +209,7 @@ ${content.reminderIntro}
 📍 {place}
 
 ${content.reminderLinkLabel}:
-{personalLink}
+{siteUrl}
 
 ${content.reminderOutro}`;
 }
@@ -340,8 +340,8 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
 📅 {dateTime}
 📍 {place}
 
-זה הקישור האישי שלך לכניסה למערכת:
-{personalLink}
+לפרטים נוספים:
+{siteUrl}
 
 מחכות לראותכם
 אורטל וכרמל`,
@@ -352,15 +352,15 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
 📅 {dateTime}
 📍 {place}
 
-זה הקישור האישי שלך לכניסה למערכת:
-{personalLink}
+לפרטים נוספים:
+{siteUrl}
 
 מחכות לראותכם
 אורטל וכרמל`,
   reminderIntro:
     "זוהי תזכורת לעדכון סטטוס הגעה לקראת מסיבת הפרידה של איילת",
   reminderSiteLabel: "לפרטים נוספים",
-  reminderLinkLabel: "זה הקישור האישי שלך לכניסה למערכת",
+  reminderLinkLabel: "לפרטים נוספים",
   reminderOutro: "מחכות לראותכם\nאורטל וכרמל",
   waThankYouConfirmed: `שלום {name},
 
@@ -380,9 +380,10 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   waThankYouMaybe: `שלום {name},
 
 קיבלנו את העדכון שלך: עדיין לא יודעים.
-כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע ועד יום 5 בספטמבר
-דרך הקישור האישי שלכם:
-{personalLink}`,
+כשתדע/י, אפשר לעדכן את סטטוס ההגעה בכל רגע ועד יום 5 בספטמבר.
+
+לפרטים נוספים:
+{siteUrl}`,
   organizerNotifyTemplate: `עדכון אישור הגעה - מסיבת פרידה
 
 שם: {name}
@@ -429,22 +430,43 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
     next.reminderLinkLabel = DEFAULT_SITE_CONTENT.reminderLinkLabel;
   }
 
-  // Normalize personal-link line in reminder WhatsApp template.
+  // Normalize personal-link line in reminder WhatsApp template → general site link.
   next.reminderTemplate = next.reminderTemplate.replace(
     /זה קישור אישי שלך לעדכון סטטוס ההגעה:/g,
-    "זה הקישור האישי שלך לכניסה למערכת:"
+    "לפרטים נוספים:"
   );
   next.reminderTemplate = next.reminderTemplate.replace(
     /זה קישור אישי שלך לכניסה למערכת:/g,
-    "זה הקישור האישי שלך לכניסה למערכת:"
+    "לפרטים נוספים:"
+  );
+  next.reminderTemplate = next.reminderTemplate.replace(
+    /זה הקישור האישי שלך לכניסה למערכת:/g,
+    "לפרטים נוספים:"
   );
   next.reminderTemplate = next.reminderTemplate.replace(
     /זה קישור אישי אליכם — (?:לעדכון סטטוס ההגעה|לכניסה למערכת):/g,
-    "זה הקישור האישי שלך לכניסה למערכת:"
+    "לפרטים נוספים:"
   );
+  next.reminderTemplate = next.reminderTemplate.replace(
+    /\{personalLink\}/g,
+    "{siteUrl}"
+  );
+
+  if (next.reminderTemplateManual?.trim()) {
+    next.reminderTemplateManual = next.reminderTemplateManual
+      .replace(/זה הקישור האישי שלך לכניסה למערכת:/g, "לפרטים נוספים:")
+      .replace(/זה קישור אישי שלך לכניסה למערכת:/g, "לפרטים נוספים:")
+      .replace(/\{personalLink\}/g, "{siteUrl}");
+  }
 
   if (!next.reminderTemplateManual?.trim()) {
     next.reminderTemplateManual = DEFAULT_SITE_CONTENT.reminderTemplateManual;
+  }
+
+  if (/\{personalLink\}/.test(next.waThankYouMaybe)) {
+    next.waThankYouMaybe = next.waThankYouMaybe
+      .replace(/דרך הקישור האישי שלכם:\n\{personalLink\}/g, "לפרטים נוספים:\n{siteUrl}")
+      .replace(/\{personalLink\}/g, "{siteUrl}");
   }
 
   if (next.submitRsvpLabel.trim() === "שליחת אישור הגעה") {

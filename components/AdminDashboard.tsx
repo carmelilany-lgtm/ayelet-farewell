@@ -1825,14 +1825,14 @@ export function AdminDashboard() {
                       label: "תזכורת — יובאו / טרם עדכנו סטטוס",
                       multiline: true,
                       rows: 12,
-                      hint: "{name} {dateTime} {place} · {siteUrl} {personalLink}",
+                      hint: "{name} {dateTime} {place} · {siteUrl}",
                     },
                     {
                       key: "reminderTemplateManual",
                       label: "הזמנה — נוספו ידנית (ממתינים)",
                       multiline: true,
                       rows: 12,
-                      hint: "{name} {dateTime} {place} · {siteUrl} {personalLink}",
+                      hint: "{name} {dateTime} {place} · {siteUrl}",
                     },
                     {
                       key: "otpMessageTemplate",
@@ -1867,7 +1867,7 @@ export function AdminDashboard() {
                       label: "תודה - עדיין לא יודע/ת",
                       multiline: true,
                       rows: 6,
-                      hint: "{name} · {personalLink}",
+                      hint: "{name} · {siteUrl}",
                     },
                     {
                       key: "organizerNotifyTemplate",
