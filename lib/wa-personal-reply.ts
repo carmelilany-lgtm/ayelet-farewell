@@ -14,6 +14,7 @@ import {
   isPersonalSeqCurrent,
 } from "./wa-personal-session";
 import {
+  PERSONAL_RELATIONSHIP_MEMORY,
   PERSONAL_REPLY_SYSTEM_PROMPT,
   PERSONAL_STYLE_EXAMPLES,
 } from "./wa-personal-style";
@@ -80,7 +81,7 @@ function parseBubbles(raw: string): string[] | null {
         .filter((b): b is string => typeof b === "string")
         .map(clampBubble)
         .filter(Boolean)
-        .slice(0, 3);
+        .slice(0, 4);
       return bubbles.length ? bubbles : null;
     }
   } catch {
@@ -91,7 +92,7 @@ function parseBubbles(raw: string): string[] | null {
     .split(/\n+/)
     .map(clampBubble)
     .filter((l) => l && !l.startsWith("{") && !l.startsWith("}"))
-    .slice(0, 3);
+    .slice(0, 4);
   return lines.length ? lines : null;
 }
 
@@ -121,12 +122,13 @@ function buildUserPrompt(opts: {
 }): string {
   const examples = PERSONAL_STYLE_EXAMPLES.map(
     (ex) =>
-      `(סגנון בלבד, לא להעתיק) היא: ${ex.her} → כרמל: ${ex.him.join(" / ")}`
+      `(voice sample only) her: ${ex.her} → Carmel: ${ex.him.join(" | ")}`
   ).join("\n");
 
+  // Prefer last ~30 turns (engine §40).
   const recent = opts.history
     .slice(-30)
-    .map((t) => `${t.role === "her" ? "היא" : "כרמל"}: ${t.text}`)
+    .map((t) => `${t.role === "her" ? "her" : "Carmel"}: ${t.text}`)
     .join("\n");
 
   const recentHim = opts.history
@@ -136,19 +138,21 @@ function buildUserPrompt(opts: {
 
   const pendingBlock = opts.pending.map((t, i) => `${i + 1}. ${t}`).join("\n");
 
-  return `דוגמאות קול (רק סגנון — אסור להעתיק אם לא רלוונטי):
+  return `${PERSONAL_RELATIONSHIP_MEMORY}
+
+Voice samples (DO NOT copy unless this exact situation):
 ${examples}
 
-היסטוריה אחרונה:
-${recent || "(ריק)"}
+Recent conversation (highest priority):
+${recent || "(empty)"}
 
-תשובות אחרונות של כרמל שאסור לחזור עליהן:
-${recentHim.length ? recentHim.map((t) => `- ${t}`).join("\n") : "(אין)"}
+Carmel's recent lines — do NOT repeat:
+${recentHim.length ? recentHim.map((t) => `- ${t}`).join("\n") : "(none)"}
 
-ההודעות החדשות שלה עכשיו — חובה להתייחס אליהן ישירות:
+Incoming message(s) from her NOW — respond to THESE:
 ${pendingBlock}
 
-החזר JSON חדש עם bubbles שמתאימים בדיוק להודעות האלה.`;
+Silently classify + filter (anti-AI / anti-parrot), then return JSON bubbles only.`;
 }
 
 async function callOpenAi(opts: {
@@ -174,10 +178,10 @@ async function callOpenAi(opts: {
     },
     body: JSON.stringify({
       model: openaiModel(),
-      temperature: 0.95,
-      presence_penalty: 0.6,
-      frequency_penalty: 0.4,
-      max_tokens: 200,
+      temperature: 0.9,
+      presence_penalty: 0.55,
+      frequency_penalty: 0.45,
+      max_tokens: 160,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: PERSONAL_REPLY_SYSTEM_PROMPT },
