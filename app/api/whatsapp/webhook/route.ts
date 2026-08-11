@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import { formatPhoneDisplay } from "@/lib/phone";
 import {
   organizerNotifyPhones,
@@ -61,14 +60,8 @@ import {
   isRenameDecline,
   setPendingRename,
 } from "@/lib/wa-pending-rename";
-import {
-  handlePersonalAutoReply,
-  resolvePersonalReplyPhone,
-} from "@/lib/wa-personal-reply";
 
 export const runtime = "nodejs";
-/** Personal auto-reply waits + types before sending (Vercel). */
-export const maxDuration = 60;
 
 const INVITE_SEND_BUTTONS = [
   { buttonId: "invite_yes", buttonText: "כן" },
@@ -210,8 +203,6 @@ function webhookAuthorized(request: Request): boolean {
  * - Organizers: add guest, rename, info menus, jokes
  * - Guests who received a reminder: RSVP buttons / guest count
  * - Joke-authorized phones (JOKE_AUTHORIZED_PHONES): jokes only
- * - Personal auto-reply (PERSONAL_AUTO_REPLY_PHONES): Carmel-style chat only
- *   — never steals RSVP / organizer / joke flows
  */
 export async function POST(request: Request) {
   if (!webhookAuthorized(request)) {
@@ -250,16 +241,13 @@ export async function POST(request: Request) {
   const guestPhone = organizerPhone
     ? null
     : await resolveRemindedGuestPhone(senderChatId);
-  const personalPhone = organizerPhone
-    ? null
-    : await resolvePersonalReplyPhone(senderChatId);
 
-  if (!jokePhone && !guestPhone && !personalPhone) {
+  if (!jokePhone && !guestPhone) {
     return Response.json({ ok: true, ignored: "not_authorized" });
   }
 
   const isOrganizer = Boolean(organizerPhone);
-  const replyTo = jokePhone || guestPhone || personalPhone!;
+  const replyTo = jokePhone || guestPhone!;
 
   // Jokes: wake only on "בדיחה". "עוד" only after at least one joke was sent.
   if (jokePhone) {
@@ -286,8 +274,6 @@ export async function POST(request: Request) {
   }
 
   // Reminded guests (non-organizers): RSVP via WhatsApp buttons / text.
-  // If RSVP doesn't handle the message and this number is personal-allowlisted,
-  // fall through to personal auto-reply (does not affect RSVP when it matches).
   if (guestPhone && !isOrganizer) {
     const guestReply = await handleGuestRsvp({
       phone: guestPhone,
@@ -302,39 +288,7 @@ export async function POST(request: Request) {
         askedCount: Boolean(guestReply.buttons?.length),
       });
     }
-    if (personalPhone && !buttonId) {
-      const inboundId = body.idMessage || null;
-      after(async () => {
-        try {
-          await handlePersonalAutoReply({
-            phone: personalPhone,
-            text,
-            messageId: inboundId,
-          });
-        } catch (err) {
-          console.error("personal auto-reply failed", err);
-        }
-      });
-      return Response.json({ ok: true, personalAutoReply: "queued" });
-    }
     return Response.json({ ok: true, ignored: "guest_unhandled" });
-  }
-
-  // Personal chat allowlist (not organizer, not mid-RSVP guest path above).
-  if (personalPhone && !isOrganizer && !buttonId) {
-    const inboundId = body.idMessage || null;
-    after(async () => {
-      try {
-        await handlePersonalAutoReply({
-          phone: personalPhone,
-          text,
-          messageId: inboundId,
-        });
-      } catch (err) {
-        console.error("personal auto-reply failed", err);
-      }
-    });
-    return Response.json({ ok: true, personalAutoReply: "queued" });
   }
 
   // Joke-only numbers: silent ignore unless they wrote בדיחה / valid עוד.
@@ -653,6 +607,5 @@ export async function GET() {
     menu: "עזרה",
     joke: "בדיחה",
     guestRsvp: "מגיע/ה | לא מגיע/ה | עדיין לא יודע/ת",
-    personalAutoReply: "PERSONAL_AUTO_REPLY_PHONES + OPENAI_API_KEY",
   });
 }

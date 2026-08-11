@@ -99,39 +99,10 @@ async function ensureWhatsAppChat(phone: string): Promise<string | null> {
   return resolveWhatsAppChatId(phone);
 }
 
-/**
- * Show "typing…" in the chat for typingTime ms (Green API: 1000–20000).
- * Best-effort — failures are ignored so reply flow still works.
- */
-export async function sendWhatsAppTyping(
-  phone: string,
-  typingTimeMs: number,
-  chatIdOverride?: string | null
-): Promise<void> {
-  if (!hasGreenApiConfig()) return;
-
-  const chatId = chatIdOverride || phoneToChatId(phone);
-  if (!chatId) return;
-
-  const typingTime = Math.min(20000, Math.max(1000, Math.round(typingTimeMs)));
-
-  try {
-    await fetch(apiUrl("sendTyping"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatId, typingTime }),
-      signal: AbortSignal.timeout(8000),
-    });
-  } catch {
-    // ignore — typing is cosmetic
-  }
-}
-
 export async function sendWhatsAppText(
   phone: string,
   message: string,
-  chatIdOverride?: string | null,
-  opts?: { typingTimeMs?: number }
+  chatIdOverride?: string | null
 ): Promise<GreenSendResult> {
   if (!hasGreenApiConfig()) {
     return {
@@ -146,23 +117,11 @@ export async function sendWhatsAppText(
     return { ok: false, error: "מספר טלפון לא תקין לשליחה" };
   }
 
-  const payload: Record<string, unknown> = {
-    chatId,
-    message,
-    linkPreview: false,
-  };
-  if (opts?.typingTimeMs != null) {
-    payload.typingTime = Math.min(
-      20000,
-      Math.max(1000, Math.round(opts.typingTimeMs))
-    );
-  }
-
   try {
     const res = await fetch(apiUrl("sendMessage"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ chatId, message, linkPreview: false }),
       signal: AbortSignal.timeout(25000),
     });
 
