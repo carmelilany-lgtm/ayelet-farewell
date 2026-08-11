@@ -41,7 +41,7 @@ import {
   sendGuestRsvpReply,
   sendReminderWithRsvpButtons,
 } from "@/lib/wa-guest-rsvp";
-import { handleOrganizerMenu } from "@/lib/wa-organizer-menu";
+import { handleOrganizerAsk } from "@/lib/wa-organizer-ask";
 import {
   looksLikeAddGuestTemplate,
   parseAddGuestMessage,
@@ -200,7 +200,7 @@ function webhookAuthorized(request: Request): boolean {
 
 /**
  * Green API incoming webhook:
- * - Organizers: add guest, rename, info menus, jokes
+ * - Organizers: add guest, rename, free-form OpenAI Q&A, jokes
  * - Guests who received a reminder: RSVP buttons / guest count
  * - Joke-authorized phones (JOKE_AUTHORIZED_PHONES): jokes only
  */
@@ -561,30 +561,7 @@ export async function POST(request: Request) {
     }
   }
 
-  // 3) Organizer info menu (עזרה / buttons / numbers / search).
-  const menu = await handleOrganizerMenu({
-    organizerPhone: replyTo,
-    text,
-    buttonId,
-  });
-  if (menu) {
-    await sendOrganizerMenuMessage(replyTo, {
-      body: menu.message,
-      textFallback: menu.textFallback,
-      buttons: menu.buttons,
-      footer: menu.footer,
-      list: menu.list,
-    });
-    return Response.json({
-      ok: true,
-      menu: true,
-      exited: Boolean(menu.exited),
-      buttons: Boolean(menu.buttons?.length),
-      list: Boolean(menu.list),
-    });
-  }
-
-  // 4) Almost-add template with bad values.
+  // 3) Almost-add template with bad values (before free-form Q&A).
   if (!fromButton && looksLikeAddGuestTemplate(text)) {
     await replyWhatsApp(
       replyTo,
@@ -596,6 +573,18 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, ignored: "not_add_template" });
   }
 
+  // 4) Free-form organizer questions about live RSVP data (OpenAI).
+  const ask = await handleOrganizerAsk({ text, buttonId });
+  if (ask) {
+    await replyWhatsApp(replyTo, ask.message, "organizer_ask");
+    return Response.json({
+      ok: true,
+      ask: true,
+      help: Boolean(ask.help),
+      error: Boolean(ask.error),
+    });
+  }
+
   return Response.json({ ok: true, ignored: "unhandled" });
 }
 
@@ -604,7 +593,8 @@ export async function GET() {
     ok: true,
     service: "ayelet-farewell-whatsapp-webhook",
     template: "שם\\nטלפון",
-    menu: "עזרה",
+    ask: "שאלה חופשית על המידע במערכת (OpenAI)",
+    help: "עזרה",
     joke: "בדיחה",
     guestRsvp: "מגיע/ה | לא מגיע/ה | עדיין לא יודע/ת",
   });
