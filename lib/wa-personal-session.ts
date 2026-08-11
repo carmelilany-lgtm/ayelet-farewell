@@ -10,6 +10,7 @@ const SITE_CONTENT_ID = "wa_personal_sessions";
 const TTL_MS = 7 * 24 * 60 * 1000;
 const MAX_HISTORY = 40;
 const MAX_PENDING = 12;
+const MAX_SEEN_IDS = 80;
 
 export type PersonalChatTurn = {
   role: "her" | "him";
@@ -20,6 +21,7 @@ export type PersonalChatTurn = {
 export type PersonalPending = {
   text: string;
   at: string;
+  messageId?: string | null;
 };
 
 export type PersonalSession = {
@@ -29,6 +31,8 @@ export type PersonalSession = {
   seq: number;
   history: PersonalChatTurn[];
   pending: PersonalPending[];
+  /** Green API inbound ids already claimed (dedupe webhook retries). */
+  seenMessageIds: string[];
 };
 
 type StoreShape = { items: PersonalSession[] };
@@ -86,6 +90,18 @@ function emptySession(phoneKey: string): PersonalSession {
     seq: 0,
     history: [],
     pending: [],
+    seenMessageIds: [],
+  };
+}
+
+function normalizeSession(item: PersonalSession): PersonalSession {
+  return {
+    ...item,
+    history: Array.isArray(item.history) ? item.history : [],
+    pending: Array.isArray(item.pending) ? item.pending : [],
+    seenMessageIds: Array.isArray(item.seenMessageIds)
+      ? item.seenMessageIds
+      : [],
   };
 }
 
@@ -96,30 +112,43 @@ export async function getPersonalSession(
   if (!phoneKey) return null;
   const store = await readStore();
   const found = store.items.find((i) => i.phoneKey === phoneKey && isFresh(i));
-  return found || null;
+  return found ? normalizeSession(found) : null;
 }
 
 /**
- * Queue her inbound text and bump seq. Returns the new seq for debounce.
+ * Queue her inbound text and bump seq.
+ * If messageId was already claimed (webhook retry), returns null.
  */
 export async function enqueuePersonalInbound(
   phone: string,
-  text: string
+  text: string,
+  messageId?: string | null
 ): Promise<{ seq: number } | null> {
   const phoneKey = keyFromPhone(phone);
   if (!phoneKey) return null;
   const store = await readStore();
-  const existing =
+  const existing = normalizeSession(
     store.items.find((i) => i.phoneKey === phoneKey && isFresh(i)) ||
-    emptySession(phoneKey);
+      emptySession(phoneKey)
+  );
+
+  const mid = messageId?.trim() || "";
+  if (mid && existing.seenMessageIds.includes(mid)) {
+    return null;
+  }
+
+  const seenMessageIds = mid
+    ? [...existing.seenMessageIds, mid].slice(-MAX_SEEN_IDS)
+    : existing.seenMessageIds;
 
   const next: PersonalSession = {
     ...existing,
     updatedAt: new Date().toISOString(),
     seq: existing.seq + 1,
+    seenMessageIds,
     pending: [
       ...existing.pending.slice(-(MAX_PENDING - 1)),
-      { text, at: new Date().toISOString() },
+      { text, at: new Date().toISOString(), messageId: mid || null },
     ],
   };
 
@@ -151,10 +180,12 @@ export async function commitPersonalReply(opts: {
   const phoneKey = keyFromPhone(opts.phone);
   if (!phoneKey) return false;
   const store = await readStore();
-  const existing = store.items.find(
+  const existingRaw = store.items.find(
     (i) => i.phoneKey === phoneKey && isFresh(i)
   );
-  if (!existing || existing.seq !== opts.seq) return false;
+  if (!existingRaw) return false;
+  const existing = normalizeSession(existingRaw);
+  if (existing.seq !== opts.seq) return false;
 
   const now = new Date().toISOString();
   const herTurns: PersonalChatTurn[] = existing.pending.map((p) => ({
@@ -185,4 +216,31 @@ export async function commitPersonalReply(opts: {
   ];
   await writeStore(store);
   return true;
+}
+
+/** Drop pending for this seq without sending (e.g. model failure). */
+export async function clearPersonalPendingIfSeq(
+  phone: string,
+  seq: number
+): Promise<void> {
+  const phoneKey = keyFromPhone(phone);
+  if (!phoneKey) return;
+  const store = await readStore();
+  const existingRaw = store.items.find(
+    (i) => i.phoneKey === phoneKey && isFresh(i)
+  );
+  if (!existingRaw) return;
+  const existing = normalizeSession(existingRaw);
+  if (existing.seq !== seq) return;
+
+  const next: PersonalSession = {
+    ...existing,
+    updatedAt: new Date().toISOString(),
+    pending: [],
+  };
+  store.items = [
+    ...store.items.filter((i) => isFresh(i) && i.phoneKey !== phoneKey),
+    next,
+  ];
+  await writeStore(store);
 }

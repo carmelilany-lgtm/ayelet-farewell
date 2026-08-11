@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { formatPhoneDisplay } from "@/lib/phone";
 import {
   organizerNotifyPhones,
@@ -302,26 +303,38 @@ export async function POST(request: Request) {
       });
     }
     if (personalPhone && !buttonId) {
-      const replied = await handlePersonalAutoReply({
-        phone: personalPhone,
-        text,
+      const inboundId = body.idMessage || null;
+      after(async () => {
+        try {
+          await handlePersonalAutoReply({
+            phone: personalPhone,
+            text,
+            messageId: inboundId,
+          });
+        } catch (err) {
+          console.error("personal auto-reply failed", err);
+        }
       });
-      if (replied) {
-        return Response.json({ ok: true, personalAutoReply: true });
-      }
+      return Response.json({ ok: true, personalAutoReply: "queued" });
     }
     return Response.json({ ok: true, ignored: "guest_unhandled" });
   }
 
   // Personal chat allowlist (not organizer, not mid-RSVP guest path above).
   if (personalPhone && !isOrganizer && !buttonId) {
-    const replied = await handlePersonalAutoReply({
-      phone: personalPhone,
-      text,
+    const inboundId = body.idMessage || null;
+    after(async () => {
+      try {
+        await handlePersonalAutoReply({
+          phone: personalPhone,
+          text,
+          messageId: inboundId,
+        });
+      } catch (err) {
+        console.error("personal auto-reply failed", err);
+      }
     });
-    if (replied) {
-      return Response.json({ ok: true, personalAutoReply: true });
-    }
+    return Response.json({ ok: true, personalAutoReply: "queued" });
   }
 
   // Joke-only numbers: silent ignore unless they wrote בדיחה / valid עוד.
