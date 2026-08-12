@@ -148,68 +148,6 @@ export async function sendWhatsAppText(
   }
 }
 
-/** OTP with a WhatsApp «העתק קוד» copy button (Green API interactive buttons). */
-export async function sendWhatsAppOtpCopy(
-  phone: string,
-  code: string,
-  body: string
-): Promise<GreenSendResult> {
-  if (!hasGreenApiConfig()) {
-    return {
-      ok: false,
-      error:
-        "Green API לא מוגדר. הוסיפו GREEN_API_ID_INSTANCE ו־GREEN_API_TOKEN_INSTANCE",
-    };
-  }
-
-  const chatId = phoneToChatId(phone);
-  if (!chatId) {
-    return { ok: false, error: "מספר טלפון לא תקין לשליחה" };
-  }
-
-  try {
-    const res = await fetch(apiUrl("sendInteractiveButtons"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chatId,
-        body,
-        footer: "לחצו להעתקה והדביקו באתר",
-        buttons: [
-          {
-            type: "copy",
-            buttonId: "otp-copy",
-            buttonText: "העתק קוד",
-            copyCode: code,
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(25000),
-    });
-
-    const data = (await res.json().catch(() => ({}))) as {
-      idMessage?: string;
-      message?: string;
-    };
-
-    if (!res.ok) {
-      return {
-        ok: false,
-        error: data.message || `שגיאת Green API (${res.status})`,
-      };
-    }
-
-    if (!data.idMessage) {
-      return { ok: false, error: "תשובה לא צפויה מ־Green API" };
-    }
-
-    return { ok: true, idMessage: data.idMessage };
-  } catch (err) {
-    console.error("Green API OTP copy button send failed", err);
-    return { ok: false, error: "כשל ברשת מול Green API" };
-  }
-}
-
 /**
  * Send with retries. First attempt also runs checkWhatsapp (helps first-time chats).
  */
@@ -289,43 +227,13 @@ export async function sendWhatsAppTextWithRetry(
   return last;
 }
 
-/** Prefer copy-button OTP; fall back to plain text if interactive send fails. */
+/** Plain-text OTP over WhatsApp (guests type or paste the code manually). */
 export async function sendWhatsAppOtpWithRetry(
   phone: string,
-  code: string,
   body: string,
   attempts = 3
 ): Promise<GreenSendResult> {
-  let last: GreenSendResult = { ok: false, error: "לא נשלח" };
-  for (let i = 0; i < attempts; i++) {
-    if (i === 0) {
-      await ensureWhatsAppChat(phone);
-      await sleep(300);
-    }
-    last = await sendWhatsAppOtpCopy(phone, code, body);
-    if (last.ok) {
-      void logWhatsAppOutbound({
-        phone,
-        purpose: "otp",
-        ok: true,
-        message: body,
-        actor: "system",
-        messageId: last.idMessage,
-      });
-      return last;
-    }
-    console.warn("Green API OTP copy send attempt failed", {
-      phone,
-      attempt: i + 1,
-      error: last.error,
-    });
-    if (i < attempts - 1) {
-      await sleep(700 * (i + 1));
-    }
-  }
-
-  console.warn("Falling back to plain OTP text message", { phone, error: last.error });
-  return sendWhatsAppTextWithRetry(phone, body, 2, {
+  return sendWhatsAppTextWithRetry(phone, body, attempts, {
     purpose: "otp",
     actor: "system",
   });

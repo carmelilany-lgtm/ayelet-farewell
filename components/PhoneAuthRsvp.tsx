@@ -149,6 +149,7 @@ export function PhoneAuthRsvp({ content }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone, code }),
+        signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -157,8 +158,12 @@ export function PhoneAuthRsvp({ content }: Props) {
         return;
       }
       applyGuest(data.guest);
-    } catch {
-      setError("בעיית רשת");
+    } catch (err) {
+      setError(
+        err instanceof DOMException && err.name === "TimeoutError"
+          ? "האימות ארך יותר מדי. נסו שוב."
+          : "בעיית רשת"
+      );
     } finally {
       verifyingOtpRef.current = false;
       setBusy(false);
