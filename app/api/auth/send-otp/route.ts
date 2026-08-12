@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     const code = generateOtpCode();
     await saveOtp(phone, code);
     const body = await buildOtpMessage(code);
-    const sent = await sendWhatsAppOtpWithRetry(phone, body);
+    const sent = await sendWhatsAppOtpWithRetry(phone, code, body);
     if (!sent.ok) {
       return Response.json({ error: sent.error }, { status: 502 });
     }
