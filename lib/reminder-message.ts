@@ -24,7 +24,7 @@ function statusLabelForOrganizer(status: string): string {
   if (status === "confirmed") return "מגיע/ה ✅";
   if (status === "declined") return "לא מגיע/ה ❌";
   if (status === "maybe") return "עדיין לא יודע/ת 🤔";
-  return "ממתין לאישור";
+  return "עוד לא אושר";
 }
 
 function waThankYouTemplate(

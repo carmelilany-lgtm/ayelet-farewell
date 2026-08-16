@@ -24,8 +24,8 @@ import {
 import type { SystemEvent } from "@/lib/system-log";
 
 const statusLabel: Record<Rsvp["status"], string> = {
-  imported: "ממתין לאישור סופי",
-  confirmed: "אושר סופית",
+  imported: "עוד לא אושר",
+  confirmed: "אושר",
   declined: "לא מגיע/ה",
   maybe: "עדיין לא יודע/ת",
 };
@@ -320,9 +320,35 @@ export function AdminDashboard() {
     return summarizeRsvps(effective);
   }, [rsvps, drafts]);
 
-  const confirmedGuestNames = useMemo(() => {
+  const confirmedGuests = useMemo(() => {
     return rsvps
       .filter((r) => (drafts[r.id]?.status ?? r.status) === "confirmed")
+      .map((r) => {
+        const d = drafts[r.id];
+        const guestCount = d?.guest_count ?? r.guest_count;
+        return {
+          name: d?.full_name?.trim() || r.full_name,
+          guestCount: Math.max(guestCount || 1, 1),
+        };
+      });
+  }, [rsvps, drafts]);
+
+  const confirmedGuestNames = useMemo(
+    () => confirmedGuests.map((g) => g.name),
+    [confirmedGuests]
+  );
+
+  const confirmedPeopleTotal = useMemo(
+    () => confirmedGuests.reduce((sum, g) => sum + g.guestCount, 0),
+    [confirmedGuests]
+  );
+
+  const pendingGuestNames = useMemo(() => {
+    return rsvps
+      .filter((r) => {
+        const status = drafts[r.id]?.status ?? r.status;
+        return status === "imported" && !isManualPendingGuest(r);
+      })
       .map((r) => drafts[r.id]?.full_name?.trim() || r.full_name);
   }, [rsvps, drafts]);
 
@@ -612,7 +638,7 @@ export function AdminDashboard() {
       const revoked = data.rsvp.status === "imported" && r.status !== "imported";
       setInfo(
         revoked
-          ? `בוטל האישור הסופי של ${data.rsvp.full_name} — חזר/ה לממתין לאישור`
+          ? `בוטל האישור של ${data.rsvp.full_name} — חזר/ה לעוד לא אושר`
           : `עודכן: ${data.rsvp.full_name} · ${statusLabel[data.rsvp.status as Rsvp["status"]]}`
       );
     } catch {
@@ -937,7 +963,7 @@ export function AdminDashboard() {
     if (status === "confirmed") return "אושר";
     if (status === "declined") return "לא מגיע/ה";
     if (status === "maybe") return "עדיין לא יודע/ת";
-    return "ממתין";
+    return "עוד לא אושר";
   }
 
   function renderGuestCards(list: Rsvp[], emptyLabel: string) {
@@ -1058,7 +1084,7 @@ export function AdminDashboard() {
                       ? "לא מגיע/ה"
                       : draft.status === "maybe"
                         ? "עדיין לא יודע/ת"
-                        : "ממתין לאישור";
+                        : "עוד לא אושר";
                 const displayCount =
                   draft.status === "declined" ? 0 : draft.guest_count;
                 return (
@@ -1131,7 +1157,7 @@ export function AdminDashboard() {
                           aria-label={`סטטוס של ${r.full_name}`}
                         >
                           <option value="imported">
-                            ממתין לאישור (מבטל אישור סופי)
+                            עוד לא אושר (מבטל אישור)
                           </option>
                           <option value="confirmed">אושר</option>
                           <option value="maybe">עדיין לא יודע/ת</option>
@@ -1412,12 +1438,22 @@ export function AdminDashboard() {
           >
             <Stat label="סה״כ" value={summary.total_records} />
             <Stat
-              label="אושרו סופית"
+              label="אושר"
               value={summary.confirmed}
               active={statusFilter === "confirmed"}
               onClick={() =>
                 setStatusFilter((f) =>
                   f === "confirmed" ? "all" : "confirmed"
+                )
+              }
+            />
+            <Stat
+              label="עוד לא אושר"
+              value={summary.imported_pending}
+              active={statusFilter === "imported"}
+              onClick={() =>
+                setStatusFilter((f) =>
+                  f === "imported" ? "all" : "imported"
                 )
               }
             />
@@ -1430,16 +1466,6 @@ export function AdminDashboard() {
               }
             />
             <Stat
-              label="ממתינים"
-              value={summary.imported_pending}
-              active={statusFilter === "imported"}
-              onClick={() =>
-                setStatusFilter((f) =>
-                  f === "imported" ? "all" : "imported"
-                )
-              }
-            />
-            <Stat
               label="טרם נרשמו (ידני)"
               value={summary.manual_pending ?? manualPendingTotal}
             />
@@ -1449,8 +1475,14 @@ export function AdminDashboard() {
               value={summary.reminders_pending}
             />
             <Stat
-              label="אורחים צפויים"
+              label="סה״כ אנשים (אושר)"
               value={summary.total_guests_attending}
+              active={statusFilter === "confirmed"}
+              onClick={() =>
+                setStatusFilter((f) =>
+                  f === "confirmed" ? "all" : "confirmed"
+                )
+              }
             />
           </div>
           <button
@@ -1462,7 +1494,9 @@ export function AdminDashboard() {
           </button>
           {confirmedGuestNames.length > 0 ? (
             <p className="admin-confirmed-list">
-              אושרו סופית: {confirmedGuestNames.join(" · ")}
+              אושר ({confirmedGuestNames.length} נרשמו · סה״כ{" "}
+              {confirmedPeopleTotal} אנשים):{" "}
+              {confirmedGuestNames.join(" · ")}
               {statusFilter !== "confirmed" ? (
                 <>
                   {" "}
@@ -1488,8 +1522,37 @@ export function AdminDashboard() {
               )}
             </p>
           ) : (
-            <p className="admin-confirmed-list muted">אין אורחים שאושרו סופית</p>
+            <p className="admin-confirmed-list muted">אין אורחים שאושרו</p>
           )}
+          {pendingGuestNames.length > 0 ? (
+            <p className="admin-confirmed-list">
+              עוד לא אושר ({pendingGuestNames.length}):{" "}
+              {pendingGuestNames.join(" · ")}
+              {statusFilter !== "imported" ? (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => setStatusFilter("imported")}
+                  >
+                    הצג ברשימה
+                  </button>
+                </>
+              ) : (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => setStatusFilter("all")}
+                  >
+                    נקה סינון
+                  </button>
+                </>
+              )}
+            </p>
+          ) : null}
 
           <div className="admin-mobile-bar">
             <button
@@ -1599,7 +1662,7 @@ export function AdminDashboard() {
 
             <Accordion
               title={`רשימת אורחים (${registeredTotal})`}
-              hint="אושרו / לא יודעים / יובאו / סירבו"
+              hint="אושר / עוד לא אושר / לא יודעים / סירבו"
               defaultOpen
               openSignal={
                 (guestSearch.trim() || statusFilter !== "all") &&
@@ -2389,7 +2452,7 @@ function GuestSheetEditor({
           disabled={saving}
           onChange={(e) => onStatus(e.target.value as Rsvp["status"])}
         >
-          <option value="imported">ממתין לאישור (מבטל אישור סופי)</option>
+          <option value="imported">עוד לא אושר (מבטל אישור)</option>
           <option value="confirmed">אושר</option>
           <option value="maybe">עדיין לא יודע/ת</option>
           <option value="declined">לא מגיע/ה</option>

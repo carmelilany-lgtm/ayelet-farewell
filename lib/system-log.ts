@@ -161,8 +161,8 @@ export async function logWhatsAppOutbound(input: {
 }
 
 export const statusLabelHe: Record<string, string> = {
-  imported: "ממתין לאישור",
-  confirmed: "אושר סופית",
+  imported: "עוד לא אושר",
+  confirmed: "אושר",
   declined: "לא מגיע/ה",
   maybe: "עדיין לא יודע/ת",
 };

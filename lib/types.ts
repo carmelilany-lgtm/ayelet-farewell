@@ -75,6 +75,7 @@ export type RsvpSummary = {
   imported_pending: number;
   /** Admin-added guests still waiting for first RSVP */
   manual_pending: number;
+  /** Sum of guest_count for confirmed only (includes each registrant). */
   total_guests_attending: number;
   reminders_sent: number;
   reminders_pending: number;

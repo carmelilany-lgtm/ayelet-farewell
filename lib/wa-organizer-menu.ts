@@ -39,8 +39,8 @@ const MENU_CLOSED_MESSAGE =
 const MENU_EXIT_FOOTER = "לסגירה שלחו: יציאה";
 
 const STATUS_LABEL: Record<RsvpStatus, string> = {
-  imported: "ממתין לאישור",
-  confirmed: "אישרו הגעה",
+  imported: "עוד לא אושר",
+  confirmed: "אושר",
   declined: "לא אושרו הגעה",
   maybe: "עדיין לא יודע/ת",
 };
@@ -82,7 +82,7 @@ function mainPageButtons(page: number): ReplyButton[] {
     case 0:
       return [btn("sum", "סיכום"), btn("search", "חיפוש אורח"), btn("more", "עוד")];
     case 1:
-      return [btn("conf", "אישרו הגעה"), btn("pend", "ממתינים"), btn("more", "עוד")];
+      return [btn("conf", "אושר"), btn("pend", "עוד לא אושר"), btn("more", "עוד")];
     case 2:
       return [
         btn("maybe", "לא יודעים"),
@@ -160,8 +160,8 @@ export function renderMainMenu(page = 0, forButtons = true): string {
   return `*תפריט מארגנים*
 1 סיכום
 2 חיפוש אורח
-3 אישרו הגעה
-4 ממתינים לאישור
+3 אושר
+4 עוד לא אושר
 5 עדיין לא יודעים
 6 לא אושרו הגעה
 7 נוספו ידנית (ממתינים)
@@ -176,12 +176,11 @@ function renderSummary(
 ): string {
   const body = `*סיכום*
 רשומות: ${summary.total_records}
-אישרו: ${summary.confirmed}
-ממתינים: ${summary.imported_pending}
+אושר: ${summary.confirmed} · סה״כ אנשים: ${summary.total_guests_attending}
+עוד לא אושר: ${summary.imported_pending}
 מתוכם ידניים: ${summary.manual_pending}
 עדיין לא יודעים: ${summary.maybe}
 לא אושרו: ${summary.declined}
-אורחים מגיעים (ספירה): ${summary.total_guests_attending}
 תזכורות נשלחו: ${summary.reminders_sent}
 תזכורות ממתינות: ${summary.reminders_pending}`;
   return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
@@ -228,6 +227,23 @@ function listTitle(filter: ListFilter): string {
   }
 }
 
+function listCountLabel(
+  filter: ListFilter,
+  ids: string[],
+  byId: Map<string, Rsvp>
+): string {
+  const total = ids.length;
+  if (filter.kind === "status" && filter.status === "confirmed") {
+    const people = ids.reduce((sum, id) => {
+      const g = byId.get(id);
+      if (!g || g.status === "declined") return sum;
+      return sum + Math.max(g.guest_count || 1, 1);
+    }, 0);
+    return `${total} נרשמו · ${people} אנשים`;
+  }
+  return String(total);
+}
+
 function renderList(
   screen: Extract<MenuScreen, { id: "list" }>,
   byId: Map<string, Rsvp>,
@@ -239,6 +255,7 @@ function renderList(
     screen.page
   );
   const title = listTitle(screen.filter);
+  const countLabel = listCountLabel(screen.filter, screen.ids, byId);
   if (total === 0) {
     return forButtons
       ? `*${title}*\nלא נמצאו אורחים.`
@@ -255,7 +272,7 @@ function renderList(
       const phone = g ? formatPhoneDisplay(g.phone) : "";
       return `• ${name}${phone ? ` · ${phone}` : ""}`;
     });
-    return `*${title}* (${total})
+    return `*${title}* (${countLabel})
 ${lines.join("\n")}
 
 בחרו אורח מהכפתורים.`;
@@ -270,7 +287,7 @@ ${lines.join("\n")}
   });
 
   if (forButtons) {
-    return `*${title}* (${total})
+    return `*${title}* (${countLabel})
 עמוד ${screen.page + 1} · ${start + 1}–${start + slice.length}
 
 ${lines.join("\n")}
@@ -282,7 +299,7 @@ ${lines.join("\n")}
   if (hasPrev) more.push(`10 עמוד קודם`);
   if (hasMore) more.push(`11 עמוד הבא`);
 
-  return `*${title}* (${total})
+  return `*${title}* (${countLabel})
 עמוד ${screen.page + 1} · ${start + 1}–${start + slice.length}
 
 ${lines.join("\n")}
@@ -600,10 +617,12 @@ function resolveAction(text: string, buttonId?: string | null): string {
     עוד: "more",
     "אושרו הגעה": "conf",
     אושרו: "conf",
+    אושר: "conf",
     "אישרו הגעה": "conf",
     אישרו: "conf",
     ממתינים: "pend",
     "ממתינים לאישור": "pend",
+    "עוד לא אושר": "pend",
     "לא יודעים": "maybe",
     "עדיין לא יודעים": "maybe",
     "לא מגיעים": "no",
