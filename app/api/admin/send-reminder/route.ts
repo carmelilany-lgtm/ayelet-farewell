@@ -14,6 +14,11 @@ import { isManualPendingGuest, type Rsvp } from "@/lib/types";
 import { sendReminderWithRsvpButtons } from "@/lib/wa-guest-rsvp";
 
 export const runtime = "nodejs";
+/** Bulk sends pace several seconds between guests — allow long runs. */
+export const maxDuration = 300;
+
+/** Pause between guests on bulk send (WhatsApp / Green API anti-ban pacing). */
+const BULK_SEND_GAP_MS = 4_000;
 
 function unauthorized() {
   return Response.json({ error: "לא מורשה" }, { status: 401 });
@@ -158,10 +163,12 @@ export async function POST(request: Request) {
     });
 
     const results: Awaited<ReturnType<typeof sendOne>>[] = [];
-    for (const rsvp of targets) {
-      results.push(await sendOne(rsvp, origin, force));
-      // Gentle pacing for Green API
-      await sleep(1200);
+    for (let i = 0; i < targets.length; i++) {
+      results.push(await sendOne(targets[i], origin, force));
+      // Wait between guests so WhatsApp does not flag rapid bulk sends.
+      if (i < targets.length - 1) {
+        await sleep(BULK_SEND_GAP_MS);
+      }
     }
 
     return Response.json({

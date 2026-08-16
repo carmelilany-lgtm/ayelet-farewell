@@ -209,7 +209,7 @@ export function legacyReminderTemplate(content: {
 
 ${content.reminderIntro}
 
-📅 {dateTime}
+📅 {dateTime} בשעה 18:00
 📍 {place}
 
 ${content.reminderLinkLabel}:
@@ -343,7 +343,7 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
 
 זוהי תזכורת קטנה לעדכן אותנו בהגעתך לקראת מסיבת הפרידה של איילת אילני 🎉
 
-📅 {dateTime}
+📅 {dateTime} בשעה 18:00
 📍 {place}
 
 לכל הפרטים ועדכון סטטוס:
@@ -354,7 +354,7 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
 
 מזמינים אותך לחגוג איתנו במסיבת הפרידה של איילת אילני ✨
 
-📅 {dateTime}
+📅 {dateTime} בשעה 18:00
 📍 {place}
 
 לפרטים נוספים ואישור הגעה:
@@ -411,6 +411,12 @@ const LEGACY_REMINDER_LINK_LABELS = new Set([
   "זה קישור אישי אליכם — לכניסה למערכת",
   "זה קישור אישי שלך לכניסה למערכת",
 ]);
+
+/** Add "בשעה 18:00" after {dateTime} when the template date line has no start time yet. */
+function ensureDateLineStartTime(template: string): string {
+  if (/\{dateTime\}.*18:00/.test(template)) return template;
+  return template.replace(/📅 \{dateTime\}(?!\s*בשעה)/g, "📅 {dateTime} בשעה 18:00");
+}
 
 /**
  * Bring older CMS copies in line with current product copy.
@@ -476,6 +482,17 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
 
 מחכות לראותכם
 אורטל וכרמל`,
+    `שלום {name},
+
+זוהי תזכורת קטנה לעדכן אותנו בהגעתך לקראת מסיבת הפרידה של איילת אילני 🎉
+
+📅 {dateTime}
+📍 {place}
+
+לכל הפרטים ועדכון סטטוס:
+{siteUrl}
+
+מחכים לראותך!`,
   ];
   if (legacyReminders.some((t) => t.trim() === next.reminderTemplate.trim())) {
     next.reminderTemplate = DEFAULT_SITE_CONTENT.reminderTemplate;
@@ -494,6 +511,17 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
 
 מחכות לראותכם
 אורטל וכרמל`,
+    `שלום {name},
+
+מזמינים אותך לחגוג איתנו במסיבת הפרידה של איילת אילני ✨
+
+📅 {dateTime}
+📍 {place}
+
+לפרטים נוספים ואישור הגעה:
+{siteUrl}
+
+מחכים לראותך!`,
   ];
   if (
     legacyManualInvites.some(
@@ -501,6 +529,14 @@ export function migrateStoredSiteContent(content: SiteContent): SiteContent {
     )
   ) {
     next.reminderTemplateManual = DEFAULT_SITE_CONTENT.reminderTemplateManual;
+  }
+
+  // Ensure start time appears on the date line in WhatsApp templates.
+  next.reminderTemplate = ensureDateLineStartTime(next.reminderTemplate);
+  if (next.reminderTemplateManual?.trim()) {
+    next.reminderTemplateManual = ensureDateLineStartTime(
+      next.reminderTemplateManual
+    );
   }
 
   // Upgrade WA thank-you copy: personal link after RSVP, no signature.

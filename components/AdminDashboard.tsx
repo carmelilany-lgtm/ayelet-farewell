@@ -732,7 +732,7 @@ export function AdminDashboard() {
     const pending = summary?.reminders_pending ?? 0;
     const ok = await askConfirm({
       title: "שליחת תזכורות ממתינות",
-      message: `לשלוח תזכורת WhatsApp ידנית ל־${pending} אורחים?\n(לא נשלח אוטומטית — רק באישור הזה)`,
+      message: `לשלוח תזכורת WhatsApp ידנית ל־${pending} אורחים?\nהשליחה תתקדם עם המתנה של כמה שניות בין הודעה להודעה (כדי לא לחסום את WhatsApp) — אל תסגרו את הדף.`,
       confirmLabel: "שלח לכולם",
     });
     if (!ok) return;
@@ -764,7 +764,7 @@ export function AdminDashboard() {
     if (manualRemindersPending < 1) return;
     const ok = await askConfirm({
       title: "תזכורת להוספה ידנית",
-      message: `לשלוח תזכורת WhatsApp ל־${manualRemindersPending} אורחים מהוספה ידנית?\n(רק מי שטרם נרשם וטרם נשלחה לו תזכורת)`,
+      message: `לשלוח תזכורת WhatsApp ל־${manualRemindersPending} אורחים מהוספה ידנית?\n(רק מי שטרם נרשם וטרם נשלחה לו תזכורת)\nהשליחה תתקדם עם המתנה של כמה שניות בין הודעה להודעה — אל תסגרו את הדף.`,
       confirmLabel: "שלח",
     });
     if (!ok) return;
@@ -1267,7 +1267,7 @@ export function AdminDashboard() {
         disabled={bulkSending || resetting || !summary.reminders_pending}
       >
         {bulkSending
-          ? "שולח…"
+          ? "שולח בהמתנה בין הודעות…"
           : `שלח תזכורות ממתינות (${summary.reminders_pending})`}
       </button>
       <button
@@ -1277,7 +1277,7 @@ export function AdminDashboard() {
         disabled={bulkSending || resetting || manualRemindersPending < 1}
       >
         {bulkSending
-          ? "שולח…"
+          ? "שולח בהמתנה בין הודעות…"
           : `שלח תזכורת להוספה ידנית (${manualRemindersPending})`}
       </button>
       <button
