@@ -343,14 +343,35 @@ export function AdminDashboard() {
     [confirmedGuests]
   );
 
-  const pendingGuestNames = useMemo(() => {
+  const pendingGuests = useMemo(() => {
     return rsvps
       .filter((r) => {
         const status = drafts[r.id]?.status ?? r.status;
         return status === "imported" && !isManualPendingGuest(r);
       })
-      .map((r) => drafts[r.id]?.full_name?.trim() || r.full_name);
+      .map((r) => {
+        const d = drafts[r.id];
+        const guestCount = d?.guest_count ?? r.guest_count;
+        return {
+          name: d?.full_name?.trim() || r.full_name,
+          guestCount: Math.max(guestCount || 1, 1),
+        };
+      })
+      .sort((a, b) => b.guestCount - a.guestCount || a.name.localeCompare(b.name, "he"));
   }, [rsvps, drafts]);
+
+  const pendingGuestLabels = useMemo(
+    () =>
+      pendingGuests.map((g) =>
+        g.guestCount > 1 ? `${g.name} · ${g.guestCount}` : g.name
+      ),
+    [pendingGuests]
+  );
+
+  const pendingPeopleTotal = useMemo(
+    () => pendingGuests.reduce((sum, g) => sum + g.guestCount, 0),
+    [pendingGuests]
+  );
 
   const confirmedPhones = useMemo(() => {
     const set = new Set<string>();
@@ -1524,10 +1545,10 @@ export function AdminDashboard() {
           ) : (
             <p className="admin-confirmed-list muted">אין אורחים שאושרו</p>
           )}
-          {pendingGuestNames.length > 0 ? (
+          {pendingGuests.length > 0 ? (
             <p className="admin-confirmed-list">
-              עוד לא אושר ({pendingGuestNames.length}):{" "}
-              {pendingGuestNames.join(" · ")}
+              עוד לא אושר ({pendingGuests.length} נרשמו · סה״כ{" "}
+              {pendingPeopleTotal} אנשים): {pendingGuestLabels.join(" · ")}
               {statusFilter !== "imported" ? (
                 <>
                   {" "}

@@ -169,14 +169,18 @@ ${navFooter({ onMain: true })}`;
 function formatNameCountLine(g: Rsvp): string {
   const n = guestPeopleCount(g);
   if (g.status === "confirmed" && n > 1) return `${g.full_name} · ${n}`;
-  if (g.status === "maybe") return `${g.full_name} · אולי`;
+  if (g.status === "imported") return `${g.full_name} · ${n}`;
+  if (g.status === "maybe") return `${g.full_name} · אולי · ${n}`;
   return g.full_name;
 }
 
 function renderNameBlock(title: string, guests: Rsvp[], empty: string): string {
   if (guests.length === 0) return `*${title}*\n${empty}`;
+  const people = guests.reduce((sum, g) => sum + guestPeopleCount(g), 0);
+  const countBit =
+    people !== guests.length ? `${guests.length} · ${people} אנשים` : String(guests.length);
   const lines = guests.map((g) => `• ${formatNameCountLine(g)}`);
-  return `*${title}* (${guests.length})\n${lines.join("\n")}`;
+  return `*${title}* (${countBit})\n${lines.join("\n")}`;
 }
 
 function renderSummary(
@@ -191,16 +195,24 @@ function renderSummary(
   const maybe = all
     .filter((r) => r.status === "maybe")
     .sort(sortByName);
+  const pending = all
+    .filter((r) => r.status === "imported" && !isManualPendingGuest(r))
+    .sort(
+      (a, b) => guestPeopleCount(b) - guestPeopleCount(a) || sortByName(a, b)
+    );
+  const pendingPeople = pending.reduce((sum, g) => sum + guestPeopleCount(g), 0);
 
   const body = `*סיכום*
 רשומות: ${summary.total_records}
 אושר: ${summary.confirmed} · סה״כ אנשים: ${summary.total_guests_attending}
-עוד לא אושר: ${summary.imported_pending}
+עוד לא אושר: ${summary.imported_pending} · סה״כ אנשים: ${pendingPeople}
 מתוכם ידניים: ${summary.manual_pending}
 עדיין לא יודעים: ${summary.maybe}
 לא אושרו: ${summary.declined}
 תזכורות נשלחו: ${summary.reminders_sent}
 תזכורות ממתינות: ${summary.reminders_pending}
+
+${renderNameBlock("עוד לא אושר (כולל כמה יגיעו)", pending, "אין כרגע")}
 
 ${renderNameBlock("מגיעים עם אורחים", bringing, "אין כרגע")}
 
@@ -250,7 +262,8 @@ function listCountLabel(
 ): string {
   const total = ids.length;
   if (
-    (filter.kind === "status" && filter.status === "confirmed") ||
+    (filter.kind === "status" &&
+      (filter.status === "confirmed" || filter.status === "imported")) ||
     filter.kind === "bringing_guests"
   ) {
     const people = ids.reduce((sum, id) => {
@@ -269,10 +282,10 @@ function formatGuestListLine(g: Rsvp, index: number): string {
   if (g.status === "confirmed") {
     return n > 1 ? `${index} ${name} · ${n} אורחים` : `${index} ${name}`;
   }
-  if (g.status === "maybe") return `${index} ${name} · אולי`;
+  if (g.status === "maybe") return `${index} ${name} · אולי · ${n}`;
   if (g.status === "declined") return `${index} ${name} · לא מגיע/ה`;
-  if (isManualPendingGuest(g)) return `${index} ${name} · ידני`;
-  return `${index} ${name} · עוד לא אושר`;
+  if (isManualPendingGuest(g)) return `${index} ${name} · ידני · ${n}`;
+  return `${index} ${name} · עוד לא אושר · ${n}`;
 }
 
 /** Split a long body into WhatsApp-safe chunks. */
