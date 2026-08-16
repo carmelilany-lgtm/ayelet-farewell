@@ -34,7 +34,11 @@ import {
   JOKE_MORE_BUTTON,
   resolveAllowlistedPhone,
 } from "@/lib/wa-joke";
-import { hasJokeSession, markJokeSession } from "@/lib/wa-joke-session";
+import {
+  getRecentJokeKeys,
+  hasJokeSession,
+  markJokeSession,
+} from "@/lib/wa-joke-session";
 import {
   handleGuestRsvp,
   resolveRemindedGuestPhone,
@@ -258,12 +262,12 @@ export async function POST(request: Request) {
       (await hasJokeSession(jokePhone));
 
     if (wantsPrimary || wantsMore) {
-      const joke = await fetchShortJoke();
+      const joke = await fetchShortJoke(await getRecentJokeKeys(jokePhone));
       await sendOrganizerMenuMessage(jokePhone, {
         body: joke,
         buttons: [JOKE_MORE_BUTTON],
       });
-      await markJokeSession(jokePhone);
+      await markJokeSession(jokePhone, joke);
       return Response.json({
         ok: true,
         joke: true,
