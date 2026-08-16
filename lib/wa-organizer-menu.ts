@@ -24,14 +24,16 @@ import {
 /**
  * Meta WhatsApp interactive guidance:
  * - Reply buttons: up to 3 quick choices (we use ≤2 guests + nav)
- * - More choices: numbered text + nav buttons
+ * - Longer lists: full numbered text (no paging) + nav buttons
  * (Green API list messages are unreliable — do not use.)
  */
-const PAGE_SIZE = 8;
-const MAIN_PAGE_COUNT = 4;
+const MAIN_PAGE_COUNT = 5;
 
 /** Max guests as reply buttons (leave ≥1 slot for nav; Meta max = 3). */
 const GUEST_BUTTON_MAX = 2;
+
+/** Stay under WhatsApp ~4096 limit with room for footer/nav. */
+const WA_SAFE_LEN = 3500;
 
 const MENU_CLOSED_MESSAGE =
   "התפריט נסגר.\nלפתיחה מחדש שלחו עזרה\nלבדיחה שלחו: בדיחה";
@@ -60,6 +62,8 @@ export type MenuReply = {
     sections: ListSection[];
     navButtons?: ReplyButton[];
   };
+  /** Extra plain-text parts when a full guest list exceeds one message. */
+  followUpMessages?: string[];
   exited?: boolean;
 };
 
@@ -72,26 +76,32 @@ function navFooter(opts?: { onMain?: boolean; backIsHome?: boolean }): string {
     return `\n0 יציאה מהתפריט`;
   }
   if (opts?.backIsHome) {
-    return `\n9 תפריט ראשי`;
+    return `\nתפריט — חזרה לתפריט הראשי`;
   }
-  return `\n0 אחורה\n9 תפריט ראשי`;
+  return `\n0 אחורה\nתפריט — חזרה לתפריט הראשי`;
 }
 
 function mainPageButtons(page: number): ReplyButton[] {
   switch (page) {
     case 0:
-      return [btn("sum", "סיכום"), btn("search", "חיפוש אורח"), btn("more", "עוד")];
+      return [btn("sum", "סיכום"), btn("with", "עם אורחים"), btn("more", "עוד")];
     case 1:
-      return [btn("conf", "אושר"), btn("pend", "עוד לא אושר"), btn("more", "עוד")];
+      return [btn("conf", "אושר"), btn("maybe", "אולי"), btn("more", "עוד")];
     case 2:
       return [
-        btn("maybe", "לא יודעים"),
-        btn("no", "לא אושרו הגעה"),
+        btn("pend", "עוד לא אושר"),
+        btn("no", "לא מגיעים"),
+        btn("more", "עוד"),
+      ];
+    case 3:
+      return [
+        btn("remind", "תזכורות"),
+        btn("manual", "ידניים"),
         btn("more", "עוד"),
       ];
     default:
       return [
-        btn("manual", "נוספו ידנית"),
+        btn("search", "חיפוש"),
         btn("addhelp", "איך להוסיף"),
         btn("exit", "יציאה"),
       ];
@@ -107,33 +117,8 @@ function navButtons(opts?: {
   hasNext?: boolean;
   backIsHome?: boolean;
 }): ReplyButton[] {
-  const hasPrev = Boolean(opts?.hasPrev);
-  const hasNext = Boolean(opts?.hasNext);
   const backIsHome = Boolean(opts?.backIsHome);
-
-  if (hasPrev && hasNext) {
-    return [btn("prev", "הקודם"), btn("next", "הבא"), btn("home", "לתפריט הראשי")];
-  }
-  if (hasNext) {
-    if (backIsHome) {
-      return [
-        btn("next", "הבא"),
-        btn("home", "לתפריט הראשי"),
-        btn("exit", "יציאה"),
-      ];
-    }
-    return [btn("back", "אחורה"), btn("next", "הבא"), btn("home", "לתפריט הראשי")];
-  }
-  if (hasPrev) {
-    if (backIsHome) {
-      return [
-        btn("prev", "הקודם"),
-        btn("home", "לתפריט הראשי"),
-        btn("exit", "יציאה"),
-      ];
-    }
-    return [btn("back", "אחורה"), btn("prev", "הקודם"), btn("home", "לתפריט הראשי")];
-  }
+  // List paging removed — ignore hasPrev/hasNext for guest lists.
   if (backIsHome) {
     return [btn("home", "לתפריט הראשי"), btn("exit", "יציאה")];
   }
@@ -151,29 +136,62 @@ function shortName(name: string): string {
   return t.length <= 25 ? t : `${t.slice(0, 22)}…`;
 }
 
+function guestPeopleCount(g: Rsvp): number {
+  if (g.status === "declined") return 0;
+  return Math.max(g.guest_count || 1, 1);
+}
+
+function sortByName(a: Rsvp, b: Rsvp): number {
+  return a.full_name.localeCompare(b.full_name, "he");
+}
+
 export function renderMainMenu(page = 0, forButtons = true): string {
   const p = Math.max(0, Math.min(MAIN_PAGE_COUNT - 1, page));
   if (forButtons) {
     return `*תפריט מארגנים* (${p + 1}/${MAIN_PAGE_COUNT})
-בחרו אפשרות מהכפתורים.`;
+סיכום · עם אורחים · אושר · אולי · ממתינים · תזכורות · חיפוש
+בחרו מהכפתורים (או «עוד»).`;
   }
   return `*תפריט מארגנים*
 1 סיכום
-2 חיפוש אורח
+2 עם אורחים (אושר + מלווים)
 3 אושר
-4 עוד לא אושר
-5 עדיין לא יודעים
-6 לא אושרו הגעה
-7 נוספו ידנית (ממתינים)
-8 איך להוסיף אורח
+4 אולי
+5 עוד לא אושר
+6 לא מגיעים
+7 תזכורות ממתינות
+8 נוספו ידנית
+9 חיפוש אורח
+10 איך להוסיף אורח
 ${navFooter({ onMain: true })}`;
+}
+
+function formatNameCountLine(g: Rsvp): string {
+  const n = guestPeopleCount(g);
+  if (g.status === "confirmed" && n > 1) return `${g.full_name} · ${n}`;
+  if (g.status === "maybe") return `${g.full_name} · אולי`;
+  return g.full_name;
+}
+
+function renderNameBlock(title: string, guests: Rsvp[], empty: string): string {
+  if (guests.length === 0) return `*${title}*\n${empty}`;
+  const lines = guests.map((g) => `• ${formatNameCountLine(g)}`);
+  return `*${title}* (${guests.length})\n${lines.join("\n")}`;
 }
 
 function renderSummary(
   summary: RsvpSummary,
+  all: Rsvp[],
   forButtons = true,
   backIsHome = false
 ): string {
+  const bringing = all
+    .filter((r) => r.status === "confirmed" && guestPeopleCount(r) > 1)
+    .sort((a, b) => guestPeopleCount(b) - guestPeopleCount(a) || sortByName(a, b));
+  const maybe = all
+    .filter((r) => r.status === "maybe")
+    .sort(sortByName);
+
   const body = `*סיכום*
 רשומות: ${summary.total_records}
 אושר: ${summary.confirmed} · סה״כ אנשים: ${summary.total_guests_attending}
@@ -182,7 +200,12 @@ function renderSummary(
 עדיין לא יודעים: ${summary.maybe}
 לא אושרו: ${summary.declined}
 תזכורות נשלחו: ${summary.reminders_sent}
-תזכורות ממתינות: ${summary.reminders_pending}`;
+תזכורות ממתינות: ${summary.reminders_pending}
+
+${renderNameBlock("מגיעים עם אורחים", bringing, "אין כרגע")}
+
+${renderNameBlock("עדיין לא יודעים", maybe, "אין כרגע")}`;
+
   return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
 }
 
@@ -205,23 +228,16 @@ function renderSearchPrompt(forButtons = true, backIsHome = false): string {
   return forButtons ? body : `${body}${navFooter({ backIsHome })}`;
 }
 
-function pageSlice(ids: string[], page: number) {
-  const start = page * PAGE_SIZE;
-  return {
-    start,
-    slice: ids.slice(start, start + PAGE_SIZE),
-    total: ids.length,
-    hasMore: start + PAGE_SIZE < ids.length,
-    hasPrev: page > 0,
-  };
-}
-
 function listTitle(filter: ListFilter): string {
   switch (filter.kind) {
     case "status":
       return STATUS_LABEL[filter.status];
     case "manual_pending":
       return "נוספו ידנית (ממתינים)";
+    case "bringing_guests":
+      return "מגיעים עם אורחים";
+    case "reminders_pending":
+      return "תזכורות ממתינות";
     case "search":
       return `חיפוש: ${filter.query}`;
   }
@@ -233,15 +249,80 @@ function listCountLabel(
   byId: Map<string, Rsvp>
 ): string {
   const total = ids.length;
-  if (filter.kind === "status" && filter.status === "confirmed") {
+  if (
+    (filter.kind === "status" && filter.status === "confirmed") ||
+    filter.kind === "bringing_guests"
+  ) {
     const people = ids.reduce((sum, id) => {
       const g = byId.get(id);
-      if (!g || g.status === "declined") return sum;
-      return sum + Math.max(g.guest_count || 1, 1);
+      if (!g) return sum;
+      return sum + guestPeopleCount(g);
     }, 0);
     return `${total} נרשמו · ${people} אנשים`;
   }
   return String(total);
+}
+
+function formatGuestListLine(g: Rsvp, index: number): string {
+  const name = g.full_name || "ללא שם";
+  const n = guestPeopleCount(g);
+  if (g.status === "confirmed") {
+    return n > 1 ? `${index} ${name} · ${n} אורחים` : `${index} ${name}`;
+  }
+  if (g.status === "maybe") return `${index} ${name} · אולי`;
+  if (g.status === "declined") return `${index} ${name} · לא מגיע/ה`;
+  if (isManualPendingGuest(g)) return `${index} ${name} · ידני`;
+  return `${index} ${name} · עוד לא אושר`;
+}
+
+/** Split a long body into WhatsApp-safe chunks. */
+function chunkMessage(header: string, lines: string[], tail: string): string[] {
+  if (lines.length === 0) {
+    const one = [header, tail].filter(Boolean).join("\n\n");
+    return hardSplit(one);
+  }
+
+  const parts: string[] = [];
+  let current = header;
+  for (const line of lines) {
+    const candidate = `${current}\n${line}`;
+    if (candidate.length > WA_SAFE_LEN && current !== header) {
+      parts.push(current);
+      current = `*(המשך הרשימה)*\n${line}`;
+    } else {
+      current = candidate;
+    }
+  }
+  if (tail) {
+    const withTail = `${current}\n\n${tail}`;
+    if (withTail.length > WA_SAFE_LEN && current.length > header.length) {
+      parts.push(current);
+      parts.push(`*(המשך)*\n${tail}`);
+    } else {
+      parts.push(withTail);
+    }
+  } else {
+    parts.push(current);
+  }
+  return parts.flatMap((p) => hardSplit(p));
+}
+
+function hardSplit(text: string): string[] {
+  if (!text) return [""];
+  if (text.length <= WA_SAFE_LEN) return [text];
+  const parts: string[] = [];
+  for (let i = 0; i < text.length; i += WA_SAFE_LEN) {
+    parts.push(text.slice(i, i + WA_SAFE_LEN));
+  }
+  return parts;
+}
+
+/** Fallback when a single block (e.g. summary) is already too long. */
+function splitLongText(text: string): string[] {
+  if (text.length <= WA_SAFE_LEN) return [text];
+  const lines = text.split("\n");
+  if (lines.length <= 1) return hardSplit(text);
+  return chunkMessage(lines[0] || "", lines.slice(1), "");
 }
 
 function renderList(
@@ -249,63 +330,37 @@ function renderList(
   byId: Map<string, Rsvp>,
   forButtons = true,
   backIsHome = false
-): string {
-  const { start, slice, total, hasMore, hasPrev } = pageSlice(
-    screen.ids,
-    screen.page
-  );
+): { message: string; followUpMessages?: string[] } {
+  const ids = screen.ids;
+  const total = ids.length;
   const title = listTitle(screen.filter);
-  const countLabel = listCountLabel(screen.filter, screen.ids, byId);
+  const countLabel = listCountLabel(screen.filter, ids, byId);
+
   if (total === 0) {
-    return forButtons
+    const empty = forButtons
       ? `*${title}*\nלא נמצאו אורחים.`
       : `*${title}*\nלא נמצאו אורחים.\n${navFooter({ backIsHome })}`;
+    return { message: empty };
   }
 
-  // Few choices → bullets + reply buttons only (no numbers).
-  const useGuestButtons = forButtons && slice.length <= GUEST_BUTTON_MAX;
-
-  if (useGuestButtons) {
-    const lines = slice.map((id) => {
-      const g = byId.get(id);
-      const name = g?.full_name || "ללא שם";
-      const phone = g ? formatPhoneDisplay(g.phone) : "";
-      return `• ${name}${phone ? ` · ${phone}` : ""}`;
-    });
-    return `*${title}* (${countLabel})
-${lines.join("\n")}
-
-בחרו אורח מהכפתורים.`;
-  }
-
-  // Many choices → numbered text (Meta list fallback / Green API recommendation).
-  const lines = slice.map((id, i) => {
+  const useGuestButtons = forButtons && total <= GUEST_BUTTON_MAX;
+  const lines = ids.map((id, i) => {
     const g = byId.get(id);
-    const name = g?.full_name || "ללא שם";
-    const phone = g ? formatPhoneDisplay(g.phone) : "";
-    return `${i + 1} ${name}${phone ? ` · ${phone}` : ""}`;
+    if (!g) return `${i + 1} ללא שם`;
+    return formatGuestListLine(g, i + 1);
   });
 
-  if (forButtons) {
-    return `*${title}* (${countLabel})
-עמוד ${screen.page + 1} · ${start + 1}–${start + slice.length}
+  const header = `*${title}* (${countLabel})`;
+  const pickHint = useGuestButtons
+    ? "בחרו אורח מהכפתורים."
+    : "שלחו מספר אורח מהרשימה לפרטים.";
+  const tail = forButtons ? pickHint : `${pickHint}${navFooter({ backIsHome })}`;
 
-${lines.join("\n")}
-
-בחרו מספר אורח מהרשימה.`;
-  }
-
-  const more: string[] = [];
-  if (hasPrev) more.push(`10 עמוד קודם`);
-  if (hasMore) more.push(`11 עמוד הבא`);
-
-  return `*${title}* (${countLabel})
-עמוד ${screen.page + 1} · ${start + 1}–${start + slice.length}
-
-${lines.join("\n")}
-${more.length ? `\n${more.join("\n")}\n` : ""}
-בחרו מספר לצפייה בפרטים.
-${navFooter({ backIsHome })}`;
+  const parts = chunkMessage(header, lines, tail);
+  return {
+    message: parts[0]!,
+    followUpMessages: parts.length > 1 ? parts.slice(1) : undefined,
+  };
 }
 
 function formatWhen(iso: string | null | undefined): string {
@@ -384,24 +439,52 @@ export function formatGuestFull(
 
 function filterGuests(all: Rsvp[], filter: ListFilter): Rsvp[] {
   switch (filter.kind) {
-    case "status":
-      return all.filter((r) => r.status === filter.status);
+    case "status": {
+      const rows = all.filter((r) => r.status === filter.status);
+      if (filter.status === "confirmed") {
+        return rows.sort(
+          (a, b) => guestPeopleCount(b) - guestPeopleCount(a) || sortByName(a, b)
+        );
+      }
+      return rows.sort(sortByName);
+    }
     case "manual_pending":
-      return all.filter((r) => isManualPendingGuest(r));
+      return all.filter((r) => isManualPendingGuest(r)).sort(sortByName);
+    case "bringing_guests":
+      return all
+        .filter((r) => r.status === "confirmed" && guestPeopleCount(r) > 1)
+        .sort(
+          (a, b) => guestPeopleCount(b) - guestPeopleCount(a) || sortByName(a, b)
+        );
+    case "reminders_pending":
+      return all
+        .filter(
+          (r) =>
+            (r.status === "imported" ||
+              r.status === "confirmed" ||
+              r.status === "maybe") &&
+            !r.reminder_sent_at
+        )
+        .sort(sortByName);
     case "search": {
       const q = filter.query.trim().toLowerCase();
       const qDigits = q.replace(/\D/g, "");
       const phoneQ = normalizePhone(filter.query);
-      return all.filter((r) => {
-        const name = normalizeGuestName(r.full_name);
-        if (name.includes(normalizeGuestName(filter.query))) return true;
-        if (r.full_name.toLowerCase().includes(q)) return true;
-        if (phoneQ && phonesMatch(r.phone, phoneQ)) return true;
-        if (qDigits.length >= 3 && r.phone.replace(/\D/g, "").includes(qDigits)) {
-          return true;
-        }
-        return false;
-      });
+      return all
+        .filter((r) => {
+          const name = normalizeGuestName(r.full_name);
+          if (name.includes(normalizeGuestName(filter.query))) return true;
+          if (r.full_name.toLowerCase().includes(q)) return true;
+          if (phoneQ && phonesMatch(r.phone, phoneQ)) return true;
+          if (
+            qDigits.length >= 3 &&
+            r.phone.replace(/\D/g, "").includes(qDigits)
+          ) {
+            return true;
+          }
+          return false;
+        })
+        .sort(sortByName);
     }
   }
 }
@@ -416,6 +499,7 @@ async function renderScreen(
   buttons: ReplyButton[];
   footer?: string;
   list?: MenuReply["list"];
+  followUpMessages?: string[];
 }> {
   const byId = new Map(all.map((r) => [r.id, r]));
   const backIsHome = backLandsOnHome(stack);
@@ -438,12 +522,25 @@ async function renderScreen(
     }
     case "summary": {
       const summary = await getSummary();
-      const buttons = navButtons(nav);
+      const buttons = [
+        btn("with", "עם אורחים"),
+        btn("maybe", "אולי"),
+        backIsHome
+          ? btn("home", "לתפריט הראשי")
+          : btn("back", "אחורה"),
+      ];
+      const summaryBody = renderSummary(summary, all, true, backIsHome);
+      const summaryParts = splitLongText(summaryBody);
+      const fallbackParts = splitLongText(
+        renderSummary(summary, all, false, backIsHome)
+      );
       return {
-        message: renderSummary(summary, true, backIsHome),
-        textFallback: renderSummary(summary, false, backIsHome),
+        message: summaryParts[0]!,
+        textFallback: fallbackParts[0]!,
         buttons,
         footer: exitFooter(buttons),
+        followUpMessages:
+          summaryParts.length > 1 ? summaryParts.slice(1) : undefined,
       };
     }
     case "search_prompt": {
@@ -465,40 +562,37 @@ async function renderScreen(
       };
     }
     case "list": {
-      const { slice, hasMore, hasPrev } = pageSlice(screen.ids, screen.page);
-      const useGuestButtons = slice.length > 0 && slice.length <= GUEST_BUTTON_MAX;
-      const pageNav = { hasPrev, hasNext: hasMore, backIsHome };
+      const ids = screen.ids;
+      const useGuestButtons =
+        ids.length > 0 && ids.length <= GUEST_BUTTON_MAX;
       let buttons: ReplyButton[];
-      if (slice.length === 0) {
+      if (ids.length === 0) {
         buttons = navButtons(nav);
       } else if (useGuestButtons) {
-        buttons = [
-          ...slice.map((id, i) => {
-            const g = byId.get(id);
-            return btn(`g${i}`, shortName(g?.full_name || `אורח ${i + 1}`));
-          }),
-        ];
+        buttons = ids.map((id, i) => {
+          const g = byId.get(id);
+          return btn(`g${i}`, shortName(g?.full_name || `אורח ${i + 1}`));
+        });
         if (backIsHome) {
           buttons.push(btn("home", "לתפריט הראשי"));
-          if (slice.length === 1) {
-            buttons.push(btn("exit", "יציאה"));
-          }
+          if (ids.length === 1) buttons.push(btn("exit", "יציאה"));
         } else {
           buttons.push(btn("back", "אחורה"));
-          if (slice.length === 1) {
-            buttons.push(btn("home", "לתפריט הראשי"));
-          }
+          if (ids.length === 1) buttons.push(btn("home", "לתפריט הראשי"));
         }
       } else {
-        // 3+ guests: numbered text (Green API list is unreliable) + nav buttons.
-        buttons = navButtons(pageNav);
+        buttons = navButtons(nav);
       }
 
+      const interactive = renderList(screen, byId, true, backIsHome);
+      const fallback = renderList(screen, byId, false, backIsHome);
+
       return {
-        message: renderList(screen, byId, true, backIsHome),
-        textFallback: renderList(screen, byId, false, backIsHome),
+        message: interactive.message,
+        textFallback: fallback.message,
         buttons,
         footer: exitFooter(buttons),
+        followUpMessages: interactive.followUpMessages,
       };
     }
     case "guest": {
@@ -558,6 +652,7 @@ function menuFromRendered(
     buttons: ReplyButton[];
     footer?: string;
     list?: MenuReply["list"];
+    followUpMessages?: string[];
   },
   extra?: { exited?: boolean }
 ): MenuReply {
@@ -569,6 +664,7 @@ function menuFromRendered(
     buttons: rendered.buttons,
     footer: rendered.footer,
     list: rendered.list,
+    followUpMessages: rendered.followUpMessages,
   };
 }
 
@@ -600,7 +696,7 @@ async function pushScreen(
 
 function parseChoice(text: string): number | null {
   const t = text.replace(/\r\n/g, "\n").trim();
-  if (!/^\d{1,2}$/.test(t)) return null;
+  if (!/^\d{1,3}$/.test(t)) return null;
   return Number(t);
 }
 
@@ -615,6 +711,9 @@ function resolveAction(text: string, buttonId?: string | null): string {
     "חיפוש אורח": "search",
     חיפוש: "search",
     עוד: "more",
+    "עם אורחים": "with",
+    "מגיעים עם אורחים": "with",
+    מלווים: "with",
     "אושרו הגעה": "conf",
     אושרו: "conf",
     אושר: "conf",
@@ -625,10 +724,14 @@ function resolveAction(text: string, buttonId?: string | null): string {
     "עוד לא אושר": "pend",
     "לא יודעים": "maybe",
     "עדיין לא יודעים": "maybe",
+    אולי: "maybe",
     "לא מגיעים": "no",
     "לא אושרו הגעה": "no",
     "לא אושרו": "no",
     "נוספו ידנית": "manual",
+    ידניים: "manual",
+    תזכורות: "remind",
+    "תזכורות ממתינות": "remind",
     "איך להוסיף": "addhelp",
     יציאה: "exit",
     אחורה: "back",
@@ -637,8 +740,6 @@ function resolveAction(text: string, buttonId?: string | null): string {
     "תפריט ראשי": "home",
     "לתפריט הראשי": "home",
     "חזרה לתפריט הראשי": "home",
-    הקודם: "prev",
-    הבא: "next",
   };
   return byLabel[t] || t;
 }
@@ -659,14 +760,14 @@ async function openList(
   return pushScreen(phone, session, next);
 }
 
-async function handleMainAction(
+async function handleMenuAction(
   phone: string,
   session: OrganizerMenuSession,
   action: string
 ): Promise<MenuReply | null> {
   const page = session.screen.id === "main" ? session.screen.page || 0 : 0;
 
-  if (action === "more") {
+  if (action === "more" && session.screen.id === "main") {
     const nextPage = (page + 1) % MAIN_PAGE_COUNT;
     return replyForScreen(phone, { id: "main", page: nextPage }, []);
   }
@@ -694,6 +795,12 @@ async function handleMainAction(
   if (action === "manual") {
     return openList(phone, session, { kind: "manual_pending" });
   }
+  if (action === "with") {
+    return openList(phone, session, { kind: "bringing_guests" });
+  }
+  if (action === "remind") {
+    return openList(phone, session, { kind: "reminders_pending" });
+  }
   return null;
 }
 
@@ -720,11 +827,8 @@ export async function handleOrganizerMenu(opts: {
     };
   }
 
-  if (
-    isHelpOrMenuOpen(text) ||
-    isMenuHomeCommand(text) ||
-    action === "home"
-  ) {
+  // Bare "9" used to mean home — now conflicts with guest #9 / main option 9 (search).
+  if (isHelpOrMenuOpen(text) || action === "home" || isMenuHomeCommand(text)) {
     const opened = await goMain(phone, 0);
     const rendered = await renderScreen(opened!.screen, await listRsvps(), []);
     return menuFromRendered(rendered);
@@ -740,11 +844,11 @@ export async function handleOrganizerMenu(opts: {
   const guestPick = action.match(/^g(\d+)$/);
   if (guestPick && session.screen.id === "list") {
     const idx = Number(guestPick[1]);
-    const { slice } = pageSlice(session.screen.ids, session.screen.page);
-    if (idx >= 0 && idx < slice.length) {
+    const ids = session.screen.ids;
+    if (idx >= 0 && idx < ids.length && ids.length <= GUEST_BUTTON_MAX) {
       const next: MenuScreen = {
         id: "guest",
-        guestId: slice[idx]!,
+        guestId: ids[idx]!,
         from: session.screen,
       };
       return pushScreen(phone, session, next);
@@ -763,9 +867,9 @@ export async function handleOrganizerMenu(opts: {
       "maybe",
       "no",
       "manual",
+      "with",
+      "remind",
       "addhelp",
-      "prev",
-      "next",
       "back",
       "home",
       "exit",
@@ -779,38 +883,18 @@ export async function handleOrganizerMenu(opts: {
     }
   }
 
-  // Button actions that apply on any screen
-  if (action === "prev" || action === "next") {
-    if (session.screen.id === "list") {
-      const { hasMore, hasPrev } = pageSlice(
-        session.screen.ids,
-        session.screen.page
-      );
-      if (action === "prev" && hasPrev) {
-        return replyForScreen(
-          phone,
-          { ...session.screen, page: session.screen.page - 1 },
-          session.stack
-        );
-      }
-      if (action === "next" && hasMore) {
-        return replyForScreen(
-          phone,
-          { ...session.screen, page: session.screen.page + 1 },
-          session.stack
-        );
-      }
-    }
-  }
-
-  if (session.screen.id === "main") {
-    const fromButton = await handleMainAction(phone, session, action);
+  // List / summary / main: open views from buttons
+  if (
+    session.screen.id === "main" ||
+    session.screen.id === "summary" ||
+    session.screen.id === "list"
+  ) {
+    const fromButton = await handleMenuAction(phone, session, action);
     if (fromButton) return fromButton;
   }
 
   const choice = parseChoice(text);
   if (choice === null) {
-    // Unknown input while menu session is open
     if (session.screen.id !== "main") {
       const rendered = await renderScreen(
         session.screen,
@@ -826,6 +910,7 @@ export async function handleOrganizerMenu(opts: {
         buttons: rendered.buttons,
         footer: rendered.footer,
         list: rendered.list,
+        followUpMessages: rendered.followUpMessages,
       };
     }
     const rendered = await renderScreen(
@@ -842,14 +927,8 @@ export async function handleOrganizerMenu(opts: {
       buttons: rendered.buttons,
       footer: rendered.footer,
       list: rendered.list,
+      followUpMessages: rendered.followUpMessages,
     };
-  }
-
-  // Global 9 = home
-  if (choice === 9) {
-    const opened = await goMain(phone, 0);
-    const rendered = await renderScreen(opened!.screen, await listRsvps(), []);
-    return menuFromRendered(rendered);
   }
 
   if (choice === 0) {
@@ -859,43 +938,63 @@ export async function handleOrganizerMenu(opts: {
   session = (await getOrganizerMenuSession(phone)) || session;
   const screen = session.screen;
 
-  if (screen.id === "main") {
-    if (choice === 1) {
-      return pushScreen(phone, session, { id: "summary" });
-    }
-    if (choice === 2) {
-      return pushScreen(phone, session, { id: "search_prompt" });
-    }
-    if (choice === 8) {
-      return pushScreen(phone, session, { id: "add_help" });
-    }
-
-    const statusMap: Record<number, ListFilter> = {
-      3: { kind: "status", status: "confirmed" },
-      4: { kind: "status", status: "imported" },
-      5: { kind: "status", status: "maybe" },
-      6: { kind: "status", status: "declined" },
-      7: { kind: "manual_pending" },
-    };
-    const filter = statusMap[choice];
-    if (!filter) {
-      const rendered = await renderScreen(screen, await listRsvps(), session.stack);
-      return {
-        handled: true,
-        message: `בחרו אפשרות מהכפתורים.\n\n${rendered.message}`,
-        textFallback: rendered.textFallback,
-        buttons: rendered.buttons,
-        footer: rendered.footer,
-        list: rendered.list,
+  // List: number selects guest from the full list (no paging).
+  if (screen.id === "list") {
+    if (choice >= 1 && choice <= screen.ids.length) {
+      const guestId = screen.ids[choice - 1]!;
+      const next: MenuScreen = {
+        id: "guest",
+        guestId,
+        from: screen,
       };
+      return pushScreen(phone, session, next);
     }
-    return openList(phone, session, filter);
+    const rendered = await renderScreen(screen, await listRsvps(), session.stack);
+    return {
+      handled: true,
+      message: `בחרו מספר אורח מהרשימה (1–${screen.ids.length}), או כפתור ניווט.\n\n${rendered.message}`,
+      textFallback: rendered.textFallback,
+      buttons: rendered.buttons,
+      footer: rendered.footer,
+      list: rendered.list,
+      followUpMessages: rendered.followUpMessages,
+    };
+  }
+
+  if (screen.id === "main") {
+    const mainMap: Record<number, () => Promise<MenuReply>> = {
+      1: () => pushScreen(phone, session, { id: "summary" }),
+      2: () => openList(phone, session, { kind: "bringing_guests" }),
+      3: () =>
+        openList(phone, session, { kind: "status", status: "confirmed" }),
+      4: () => openList(phone, session, { kind: "status", status: "maybe" }),
+      5: () =>
+        openList(phone, session, { kind: "status", status: "imported" }),
+      6: () =>
+        openList(phone, session, { kind: "status", status: "declined" }),
+      7: () => openList(phone, session, { kind: "reminders_pending" }),
+      8: () => openList(phone, session, { kind: "manual_pending" }),
+      9: () => pushScreen(phone, session, { id: "search_prompt" }),
+      10: () => pushScreen(phone, session, { id: "add_help" }),
+    };
+    const run = mainMap[choice];
+    if (run) return run();
+
+    const rendered = await renderScreen(screen, await listRsvps(), session.stack);
+    return {
+      handled: true,
+      message: `בחרו אפשרות מהכפתורים.\n\n${rendered.message}`,
+      textFallback: rendered.textFallback,
+      buttons: rendered.buttons,
+      footer: rendered.footer,
+      list: rendered.list,
+    };
   }
 
   if (screen.id === "summary" || screen.id === "add_help") {
     const rendered = await renderScreen(screen, await listRsvps(), session.stack);
     const hint = backLandsOnHome(session.stack)
-      ? "בחרו לתפריט הראשי או יציאה."
+      ? "בחרו לתפריט הראשי או יציאה — או «עם אורחים» / «אולי»."
       : "בחרו אחורה או לתפריט הראשי.";
     return {
       handled: true,
@@ -904,48 +1003,13 @@ export async function handleOrganizerMenu(opts: {
       buttons: rendered.buttons,
       footer: rendered.footer,
       list: rendered.list,
+      followUpMessages: rendered.followUpMessages,
     };
   }
 
   if (screen.id === "search_prompt") {
     const rendered = await renderScreen(screen, await listRsvps(), session.stack);
     return menuFromRendered(rendered);
-  }
-
-  if (screen.id === "list") {
-    const { slice, hasMore, hasPrev } = pageSlice(screen.ids, screen.page);
-    if (choice >= 1 && choice <= slice.length) {
-      const guestId = slice[choice - 1]!;
-      const next: MenuScreen = {
-        id: "guest",
-        guestId,
-        from: screen,
-      };
-      return pushScreen(phone, session, next);
-    }
-    if (choice === 10 && hasPrev) {
-      return replyForScreen(
-        phone,
-        { ...screen, page: screen.page - 1 },
-        session.stack
-      );
-    }
-    if (choice === 11 && hasMore) {
-      return replyForScreen(
-        phone,
-        { ...screen, page: screen.page + 1 },
-        session.stack
-      );
-    }
-    const rendered = await renderScreen(screen, await listRsvps(), session.stack);
-    return {
-      handled: true,
-      message: `בחרו מספר אורח מהרשימה, או כפתור ניווט.\n\n${rendered.message}`,
-      textFallback: rendered.textFallback,
-      buttons: rendered.buttons,
-      footer: rendered.footer,
-      list: rendered.list,
-    };
   }
 
   if (screen.id === "guest") {

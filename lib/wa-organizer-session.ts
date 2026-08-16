@@ -12,6 +12,10 @@ const TTL_MS = 15 * 60 * 1000; // close menu after 15 min idle
 export type ListFilter =
   | { kind: "status"; status: RsvpStatus }
   | { kind: "manual_pending" }
+  /** Confirmed guests bringing at least one companion (guest_count > 1). */
+  | { kind: "bringing_guests" }
+  /** Eligible for reminder and still waiting. */
+  | { kind: "reminders_pending" }
   | { kind: "search"; query: string };
 
 export type MenuScreen =
@@ -147,7 +151,8 @@ export function isHelpOrMenuOpen(text: string): boolean {
 
 export function isMenuHomeCommand(text: string): boolean {
   const t = text.replace(/\r\n/g, "\n").trim().toLowerCase();
-  return /^(9|תפריט|ראשי|תפריט ראשי|home)$/i.test(t);
+  // Do not treat bare "9" as home — it selects guest #9 / main option 9 (search).
+  return /^(תפריט|ראשי|תפריט ראשי|home)$/i.test(t);
 }
 
 export function isMenuBackCommand(text: string): boolean {

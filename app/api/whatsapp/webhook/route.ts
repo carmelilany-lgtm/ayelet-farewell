@@ -575,12 +575,18 @@ export async function POST(request: Request) {
       footer: menu.footer,
       list: menu.list,
     });
+    if (menu.followUpMessages?.length) {
+      for (const part of menu.followUpMessages) {
+        await sendWhatsAppText(replyTo, part);
+      }
+    }
     return Response.json({
       ok: true,
       menu: true,
       exited: Boolean(menu.exited),
       buttons: Boolean(menu.buttons?.length),
       list: Boolean(menu.list),
+      followUps: menu.followUpMessages?.length ?? 0,
     });
   }
 

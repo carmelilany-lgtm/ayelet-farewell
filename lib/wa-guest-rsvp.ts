@@ -22,7 +22,6 @@ import {
   clearGuestRsvpSession,
   getGuestRsvpSession,
   setGuestRsvpSession,
-  type GuestRsvpPendingStatus,
 } from "./wa-guest-rsvp-session";
 import { phoneFromWhatsAppId } from "./whatsapp-add-guest";
 
@@ -246,7 +245,7 @@ export async function handleGuestRsvp(opts: {
   const countChoice = parseGuestCount(opts.text, opts.buttonId);
   const { countPrompt } = await guestRsvpPrompts();
 
-  // Waiting for guest count.
+  // Waiting for guest count (after "מגיע/ה").
   if (pending) {
     if (statusChoice === "declined") {
       await clearGuestRsvpSession(phone);
@@ -261,8 +260,22 @@ export async function handleGuestRsvp(opts: {
       return { handled: true, message: saved.thankYou };
     }
 
-    if (statusChoice === "confirmed" || statusChoice === "maybe") {
-      await setGuestRsvpSession(phone, statusChoice);
+    // "Maybe" should notify organizers immediately — no count step required.
+    if (statusChoice === "maybe") {
+      await clearGuestRsvpSession(phone);
+      const saved = await saveRsvp({
+        phone,
+        status: "maybe",
+        guestCount: Math.max(rsvp.guest_count || 1, 1),
+      });
+      if (!saved) {
+        return { handled: true, message: "לא הצלחתי לשמור. נסו שוב." };
+      }
+      return { handled: true, message: saved.thankYou };
+    }
+
+    if (statusChoice === "confirmed") {
+      await setGuestRsvpSession(phone, "confirmed");
       return countAskReply();
     }
 
@@ -270,7 +283,7 @@ export async function handleGuestRsvp(opts: {
       await clearGuestRsvpSession(phone);
       const saved = await saveRsvp({
         phone,
-        status: pending.pendingStatus,
+        status: pending.pendingStatus === "maybe" ? "maybe" : "confirmed",
         guestCount: countChoice,
       });
       if (!saved) {
@@ -300,7 +313,20 @@ export async function handleGuestRsvp(opts: {
     return { handled: true, message: saved.thankYou };
   }
 
-  await setGuestRsvpSession(phone, statusChoice as GuestRsvpPendingStatus);
+  // Maybe: save + notify organizers right away (no guest-count prompt).
+  if (statusChoice === "maybe") {
+    const saved = await saveRsvp({
+      phone,
+      status: "maybe",
+      guestCount: Math.max(rsvp.guest_count || 1, 1),
+    });
+    if (!saved) {
+      return { handled: true, message: "לא הצלחתי לשמור. נסו שוב." };
+    }
+    return { handled: true, message: saved.thankYou };
+  }
+
+  await setGuestRsvpSession(phone, "confirmed");
   return countAskReply();
 }
 

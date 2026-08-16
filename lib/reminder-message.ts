@@ -27,6 +27,13 @@ function statusLabelForOrganizer(status: string): string {
   return "עוד לא אושר";
 }
 
+function organizerNotifyHeadline(status: string): string {
+  if (status === "maybe") return "עדכון: עדיין לא יודע/ת - מסיבת פרידה";
+  if (status === "declined") return "עדכון: לא מגיע/ה - מסיבת פרידה";
+  if (status === "confirmed") return "עדכון: מגיע/ה - מסיבת פרידה";
+  return "עדכון הגעה - מסיבת פרידה";
+}
+
 function waThankYouTemplate(
   content: SiteContent,
   kind: ThankYouKind
@@ -183,13 +190,22 @@ export async function buildOrganizerConfirmMessage(opts: {
   notes?: string | null;
 }): Promise<string> {
   const content = await getSiteContent();
-  return applyTemplate(content.organizerNotifyTemplate, {
+  const filled = applyTemplate(content.organizerNotifyTemplate, {
     name: opts.fullName,
     phone: opts.phone,
     status: statusLabelForOrganizer(opts.status),
     guestCount: String(opts.guestCount),
     notes: opts.notes?.trim() ? `הערות: ${opts.notes.trim()}` : "",
   });
+
+  // Make "maybe" (and other statuses) unmistakable in the first line.
+  const lines = filled.split("\n");
+  const headline = organizerNotifyHeadline(opts.status);
+  if (lines[0]?.includes("עדכון")) {
+    lines[0] = headline;
+    return lines.join("\n");
+  }
+  return `${headline}\n\n${filled}`;
 }
 
 export type { SiteContent };
